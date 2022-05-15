@@ -18,7 +18,7 @@ pub fn Rect(comptime T: type) type {
 
         pub fn default() Self {
             if (T == Dimension) {
-                return Self {
+                return Self{
                     .start = Dimension.default(),
                     .end = Dimension.default(),
                     .top = Dimension.default(),
@@ -27,9 +27,9 @@ pub fn Rect(comptime T: type) type {
             }
             @compileError("type parameter can only be 'Dimension' when constructing a default rect. ");
         }
-        
-        pub fn map(self: Self, comptime R: type, f: fn(T) R) Rect(R) {
-            return Rect(R) {
+
+        pub fn map(self: Self, comptime R: type, f: fn (T) R) Rect(R) {
+            return Rect(R){
                 .start = f(self.start),
                 .end = f(self.end),
                 .top = f(self.top),
@@ -100,19 +100,18 @@ pub fn Rect(comptime T: type) type {
                 return self.end;
             }
         }
-
     };
 }
 
 test "Rect" {
-    const r1 = Rect(Number) {
+    const r1 = Rect(Number){
         .start = Number.default(),
         .end = Number.default(),
         .top = Number.default(),
         .bottom = Number.default(),
     };
-    std.debug.print("\nRect(Number) horizontal Direction = {any}, {any} \n", .{r1.start, r1.horizontal()});
-    const r2 = Rect(i32) {
+    std.debug.print("\nRect(Number) horizontal Direction = {any}, {any} \n", .{ r1.start, r1.horizontal() });
+    const r2 = Rect(i32){
         .start = 0,
         .top = 0,
         .end = 10,
@@ -126,10 +125,10 @@ test "Rect" {
 test "Rect default" {
     const r1 = Rect(Dimension).default();
     std.debug.print("\n default rect {}\n", .{r1});
-    try std.testing.expect(r1.start == Dimension.@"Undefined" );
-    try std.testing.expect(r1.end == Dimension.@"Undefined" );
-    try std.testing.expect(r1.top == Dimension.@"Undefined" );
-    try std.testing.expect(r1.bottom == Dimension.@"Undefined" );
+    try std.testing.expect(r1.start == Dimension.@"Undefined");
+    try std.testing.expect(r1.end == Dimension.@"Undefined");
+    try std.testing.expect(r1.top == Dimension.@"Undefined");
+    try std.testing.expect(r1.bottom == Dimension.@"Undefined");
 }
 
 pub fn Size(comptime T: type) type {
@@ -141,16 +140,13 @@ pub fn Size(comptime T: type) type {
 
         pub fn default() Size(T) {
             if (T == Dimension) {
-                return Self {
-                    .width = Dimension.Auto,
-                    .height = Dimension.Auto
-                };
+                return Self{ .width = Dimension.Auto, .height = Dimension.Auto };
             }
             @compileError("type parameter can only be 'Dimension' when constructing a default size. ");
         }
 
-        pub fn map(self: Self, comptime R: type, f: fn(T) R ) Size(R) {
-            return Size(R) {
+        pub fn map(self: Self, comptime R: type, f: fn (T) R) Size(R) {
+            return Size(R){
                 .width = f(self.width),
                 .height = f(self.height),
             };
@@ -189,49 +185,34 @@ pub fn Size(comptime T: type) type {
         }
 
         pub fn resolve(self: Size(Dimension), parent: Size(Number)) Size(Number) {
-            return Size(Number) {
-                .width = self.width.resolve(parent.width),
-                .height = self.height.resolve(parent.height)
-            };
+            return Size(Number){ .width = self.width.resolve(parent.width), .height = self.height.resolve(parent.height) };
         }
-
     };
 }
 
 test "default size" {
-    std.debug.print("\n zero size {any}\n", .{ Size(Dimension).default() });
+    std.debug.print("\n zero size {any}\n", .{Size(Dimension).default()});
     try std.testing.expect(Size(Dimension).default().width == Dimension.Auto);
     try std.testing.expect(Size(Dimension).default().height == Dimension.Auto);
 }
 
-
 test "resolve size" {
-    const parentSize = Size(Number) {
-        .width = Number { .Defined = 100 },
-        .height = Number { .Defined = 100  }
-    };
+    const parentSize = Size(Number){ .width = Number{ .Defined = 100 }, .height = Number{ .Defined = 100 } };
 
-    const childSize1 = Size(Dimension) {
-        .width = Dimension { .Percent = 0.2 },
-        .height = Dimension { .Percent = 0.3 }
-    };
+    const childSize1 = Size(Dimension){ .width = Dimension{ .Percent = 0.2 }, .height = Dimension{ .Percent = 0.3 } };
 
     std.debug.print("\n Resolved Size = {any} \n", .{childSize1.resolve(parentSize)});
 
-    const childSize2 = Size(Dimension) {
-        .width = Dimension { .Points = 20.0 },
-        .height = Dimension { .Points = 30.0 }
-    };
+    const childSize2 = Size(Dimension){ .width = Dimension{ .Points = 20.0 }, .height = Dimension{ .Points = 30.0 } };
     std.debug.print("\n Resolved Size = {any} \n", .{childSize2.resolve(parentSize)});
 }
 
 pub fn UndefinedSize() Size(Number) {
-    return Size(Number) { .width = Number.@"Undefined", .height = Number.@"Undefined" };
+    return Size(Number){ .width = Number.@"Undefined", .height = Number.@"Undefined" };
 }
 
-
 pub fn ZeroSize() Size(f32) {
-    return Size(f32) { .width = 0.0, .height = 0.0 };
+    return Size(f32){ .width = 0.0, .height = 0.0 };
 }
 
 fn mapper(x: f32) i32 {
@@ -240,14 +221,14 @@ fn mapper(x: f32) i32 {
 
 fn mapperA(x: f32) f64 {
     return x + 10.0;
-} 
+}
 
 test "size" {
     const s1 = UndefinedSize();
     std.debug.print("\n s1 = {any} \n", .{s1});
     const s2 = ZeroSize();
-    std.debug.print("\n s2 map = {any} \n", .{ s2.map(i32, mapper) });
-    std.debug.print("\n s3 map = {any} \n", .{ ZeroSize().map(f64, mapperA)});
+    std.debug.print("\n s2 map = {any} \n", .{s2.map(i32, mapper)});
+    std.debug.print("\n s3 map = {any} \n", .{ZeroSize().map(f64, mapperA)});
 }
 
 pub fn Point(comptime T: type) type {
@@ -258,7 +239,7 @@ pub fn Point(comptime T: type) type {
 }
 
 pub fn ZeroPoint() Point(f32) {
-    return Point(f32) { .x = 0.0, .y = 0.0 };
+    return Point(f32){ .x = 0.0, .y = 0.0 };
 }
 
 test "Point" {
@@ -315,11 +296,11 @@ pub const Number = union(enum) {
     }
 
     pub fn mul_f32(self: Number, other: f32) Number {
-        return switch(self) {
+        return switch (self) {
             .Defined => {
-                return Number { .Defined =  self.Defined * other };
+                return Number{ .Defined = self.Defined * other };
             },
-            else => Number.@"Undefined"
+            else => Number.@"Undefined",
         };
     }
 
@@ -464,9 +445,7 @@ pub const FlexDirection = enum {
     pub fn is_reverse(self: FlexDirection) bool {
         return (self == .RowReverse) or (self == .ColumnReverse);
     }
-
 };
-
 
 pub const JustifyContent = enum {
     FlexStart,
@@ -521,8 +500,8 @@ pub const Dimension = union(enum) {
     }
 
     pub fn resolve(self: Dimension, parent_dim: Number) Number {
-        return switch(self) {
-            .Points => Number { .Defined = self.Points },
+        return switch (self) {
+            .Points => Number{ .Defined = self.Points },
             .Percent => parent_dim.mul_f32(self.Percent),
             else => Number.@"Undefined",
         };
@@ -534,9 +513,9 @@ pub const Dimension = union(enum) {
 };
 
 test "Dimension" {
-    const n1 = Number { .Defined = 100.0 };
-    const d1 = Dimension { .Percent = 0.10 };
-    try testing.expect(std.meta.eql( d1.resolve(n1), Number { .Defined = 10.0 } ));
+    const n1 = Number{ .Defined = 100.0 };
+    const d1 = Dimension{ .Percent = 0.10 };
+    try testing.expect(std.meta.eql(d1.resolve(n1), Number{ .Defined = 10.0 }));
     try testing.expect(d1.is_defined());
 }
 
@@ -566,7 +545,7 @@ pub const Style = struct {
     aspect_ration: Number,
 
     pub fn default() Self {
-        return Self {
+        return Self{
             .display = Display.default(),
             .position_type = PositionType.default(),
             .direction = Direction.default(),
@@ -577,7 +556,7 @@ pub const Style = struct {
             .align_self = AlignSelf.default(),
             .align_content = AlignContent.default(),
             .justify_content = JustifyContent.default(),
-            .position =  Rect(Dimension).default(),
+            .position = Rect(Dimension).default(),
             .margin = Rect(Dimension).default(),
             .padding = Rect(Dimension).default(),
             .border = Rect(Dimension).default(),
@@ -665,12 +644,12 @@ pub const Style = struct {
 
     pub fn align_self(self: Self, parent: Style) AlignSelf {
         if (self.align_self == AlignSelf.Auto) {
-            return switch(parent) {
+            return switch (parent) {
                 .FlexStart => AlignSelf.FlexStart,
                 .FlexEnd => AlignSelf.FlexEnd,
                 .Center => AlignSelf.Center,
                 .Baseline => AlignSelf.Baseline,
-                .Stretch => AlignSelf.Stretch
+                .Stretch => AlignSelf.Stretch,
             };
         } else {
             return self.align_self;
@@ -690,7 +669,7 @@ test "default style" {
     try std.testing.expect(s.align_self == AlignSelf.default());
     try std.testing.expect(s.align_content == AlignContent.default());
     try std.testing.expect(s.justify_content == JustifyContent.default());
-    try std.testing.expect(std.meta.eql(s.position,  Rect(Dimension).default()));
+    try std.testing.expect(std.meta.eql(s.position, Rect(Dimension).default()));
     try std.testing.expect(std.meta.eql(s.margin, Rect(Dimension).default()));
     try std.testing.expect(std.meta.eql(s.padding, Rect(Dimension).default()));
     try std.testing.expect(std.meta.eql(s.border, Rect(Dimension).default()));
@@ -711,21 +690,15 @@ pub const NodeId = usize;
 
 //#region node
 
-const MeasureFunction = fn(Size(Number)) Size(f32);
+const MeasureFunction = fn (Size(Number)) Size(f32);
 
-pub const MeasureFunc = union(enum) {
-    Raw: MeasureFunction,
-    Boxed: *MeasureFunction
-};
+pub const MeasureFunc = union(enum) { Raw: MeasureFunction, Boxed: *MeasureFunction };
 
 //#endregion
-
-
 
 //#region forest
 
 pub const NodeData = struct {
-    
     const Self = @This();
 
     style: Style,
@@ -735,7 +708,7 @@ pub const NodeData = struct {
     is_dirty: bool,
 
     pub fn new_leaf(style: Style, measure: MeasureFunc) Self {
-        return Self {
+        return Self{
             .style = style,
             .measure = measure,
             .layout_cache = null,
@@ -745,7 +718,7 @@ pub const NodeData = struct {
     }
 
     pub fn new(style: Style) Self {
-        return Self {
+        return Self{
             .style = style,
             .measure = null,
             .layout_cache = null,
@@ -756,23 +729,19 @@ pub const NodeData = struct {
 };
 
 fn testMeasureFunc(s: Size(Number)) Size(f32) {
-    return Size(f32) {
-        .width = s.width.Defined,
-        .height = s.height.Defined
-    };
+    return Size(f32){ .width = s.width.Defined, .height = s.height.Defined };
 }
 
 test "NodeData" {
-    const leaf = NodeData.new_leaf(Style.default(), MeasureFunc {
+    const leaf = NodeData.new_leaf(Style.default(), MeasureFunc{
         .Raw = testMeasureFunc,
     });
     try std.testing.expect(leaf.is_dirty == true);
     try std.testing.expect(leaf.layout_cache == null);
-    try std.testing.expect(std.meta.eql(leaf.style,  Style.default()));
+    try std.testing.expect(std.meta.eql(leaf.style, Style.default()));
 }
 
 pub const Forest = struct {
-
     const Self = @This();
 
     nodes: Vec(NodeData),
@@ -781,7 +750,7 @@ pub const Forest = struct {
     allocator: Allocator,
 
     pub fn with_capacity(alloc: Allocator, capacity: usize) Allocator.Error!Self {
-        return Self {
+        return Self{
             .nodes = try Vec(NodeData).initCapacity(alloc, capacity),
             .children = try Vec(ChildrenVec(NodeId)).initCapacity(alloc, capacity),
             .parents = try Vec(ParentsVec(NodeId)).initCapacity(alloc, capacity),
@@ -798,8 +767,8 @@ pub const Forest = struct {
     }
 
     pub fn new_node(self: *Self, style: Style, children: ChildrenVec(NodeId)) Allocator.Error!NodeId {
-        const id  = self.nodes.items.len;
-        for(children.items) | *child | {
+        const id = self.nodes.items.len;
+        for (children.items) |*child| {
             try self.parents.items[child.*].append(id);
         }
         try self.nodes.append(NodeData.new(style));
@@ -814,16 +783,15 @@ pub const Forest = struct {
         self.mark_dirty(node);
     }
 
-
-    fn mark_dirty_impl(nodes: *Vec(NodeData), parents: []const ParentsVec(NodeId), node_id: NodeId ) void {
+    fn mark_dirty_impl(nodes: *Vec(NodeData), parents: []const ParentsVec(NodeId), node_id: NodeId) void {
         var node = &nodes.items[node_id];
         node.layout_cache = null;
         node.is_dirty = true;
-        for(parents[node_id].items) | *parent | {
+        for (parents[node_id].items) |*parent| {
             mark_dirty_impl(nodes, parents, parent.*);
         }
     }
-    
+
     pub fn mark_dirty(self: *Self, node: NodeId) void {
         mark_dirty_impl(&self.nodes, self.parents.items, node);
     }
@@ -833,14 +801,14 @@ pub const Forest = struct {
     }
 
     fn clear_children_retaining_capacity(self: *Self) void {
-        for(self.children.items) | *child | {
+        for (self.children.items) |*child| {
             child.deinit();
         }
         self.children.clearRetainingCapacity();
     }
 
     fn clear_parents_reatining_capacity(self: *Self) void {
-        for(self.parents.items) | *parent | {
+        for (self.parents.items) |*parent| {
             parent.deinit();
         }
         self.parents.clearRetainingCapacity();
@@ -854,10 +822,10 @@ pub const Forest = struct {
             return null;
         }
         //  Remove old node as parent from all it's children.
-        for(self.children.items[node].items) | *child | {
+        for (self.children.items[node].items) |*child| {
             var parents_child = &self.parents.items[child.*];
             var pos: usize = 0;
-            while(pos < parents_child.items.len) {
+            while (pos < parents_child.items.len) {
                 if (parents_child.items[pos] == node) {
                     _ = parents_child.swapRemove(pos);
                 } else {
@@ -866,10 +834,10 @@ pub const Forest = struct {
             }
         }
         //  Remove old node as child from all it's parents.
-        for(self.parents.items[node].items) | *parent | {
+        for (self.parents.items[node].items) |*parent| {
             var child_parents = &self.children.items[parent.*];
             var pos: usize = 0;
-            while(pos < child_parents.items.len) {
+            while (pos < child_parents.items.len) {
                 if (child_parents.items[pos] == node) {
                     _ = child_parents.swapRemove(pos);
                 } else {
@@ -880,16 +848,16 @@ pub const Forest = struct {
         const last = self.nodes.items.len;
         if (last != node) {
             // Update ids for every child of the swapped in node.
-            for(self.children.items[last].items) | *child | {
-                for(self.parents.items[child.*].items) | *parent | {
+            for (self.children.items[last].items) |*child| {
+                for (self.parents.items[child.*].items) |*parent| {
                     if (parent.* == last) {
                         parent.* = node;
                     }
                 }
             }
             // Update ids for every parent of the swapped in node
-            for(self.parents.items[last].items) | *parent | {
-                for(self.children.items[parent.*].items) | *child | {
+            for (self.parents.items[last].items) |*parent| {
+                for (self.children.items[parent.*].items) |*child| {
                     if (child.* == last) {
                         child.* = node;
                     }
@@ -907,7 +875,7 @@ pub const Forest = struct {
 
     pub fn remove_child(self: *Self, node: NodeId, child: NodeId) Allocator.Error!NodeId {
         var index: NodeId = std.math.maxInt(NodeId);
-        for(self.children.items[node].items) | *n, idx | {
+        for (self.children.items[node].items) |*n, idx| {
             if (n.* == child) {
                 index = idx;
                 break;
@@ -920,7 +888,7 @@ pub const Forest = struct {
         const child = self.children.items[node].orderedRemove(index);
         var count: usize = 0;
         var new_vec = try ParentsVec(NodeId).initCapacity(self.allocator, self.parents.items[child].items.len);
-        for(self.parents.items[child].items) | parent | {
+        for (self.parents.items[child].items) |parent| {
             if (parent != node) {
                 new_vec.appendAssumeCapacity(parent);
                 count += 1;
@@ -933,21 +901,18 @@ pub const Forest = struct {
         return child;
     }
 
-
     pub fn deinit(self: *Self) void {
         self.nodes.deinit();
-        for(self.children.items) | *child | {
+        for (self.children.items) |*child| {
             child.deinit();
         }
-        for(self.parents.items) | *parent | {
+        for (self.parents.items) |*parent| {
             parent.deinit();
         }
         self.children.deinit();
         self.parents.deinit();
     }
-
 };
-
 
 test "Forest" {
     {
@@ -956,7 +921,7 @@ test "Forest" {
         defer {
             forest.deinit();
         }
-        const nodeId = forest.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFunc });
+        const nodeId = forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
         std.debug.print("\n forest.new_leaf = nodeId = {any}\n", .{nodeId});
     }
     {
@@ -970,7 +935,7 @@ test "Forest" {
         defer forest.deinit();
         const node0 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
         const node1 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
-        const node2 = try forest.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFunc });
+        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
         try forest.add_child(node0, node1);
         forest.nodes.items[node0].is_dirty = false;
         forest.nodes.items[node1].is_dirty = false;
@@ -994,7 +959,7 @@ test "Forest.swap_remove" {
         defer forest.deinit();
         const node0 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
         const node1 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
-        const node2 = try forest.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFunc });
+        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
         try forest.add_child(node1, node2);
         try forest.add_child(node0, node1);
         try std.testing.expectEqualSlices(NodeId, &[_]NodeId{0}, forest.parents.items[1].items);
@@ -1011,7 +976,7 @@ test "Forest.swap_remove" {
         defer forest.deinit();
         const node0 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
         const node1 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
-        const node2 = try forest.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFunc });
+        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
         try forest.add_child(node1, node2);
         try forest.add_child(node0, node1);
         try std.testing.expectEqualSlices(NodeId, &[_]NodeId{1}, forest.parents.items[2].items);
@@ -1030,11 +995,11 @@ test "Forest.remove_child" {
         var forest = try Forest.with_capacity(std.testing.allocator, 4);
         defer forest.deinit();
         const node0 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
-        const node1 = try forest.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFunc });
-        const node2 = try forest.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFunc });
+        const node1 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
+        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
         try forest.add_child(node0, node1);
         try forest.add_child(node0, node2);
-        try std.testing.expectEqualSlices(NodeId, &[_]NodeId{1, 2}, forest.children.items[0].items);
+        try std.testing.expectEqualSlices(NodeId, &[_]NodeId{ 1, 2 }, forest.children.items[0].items);
         try std.testing.expectEqualSlices(NodeId, &[_]NodeId{0}, forest.parents.items[2].items);
         _ = try forest.remove_child(@as(NodeId, 0), @as(NodeId, 2));
         try std.testing.expectEqualSlices(NodeId, &[_]NodeId{1}, forest.children.items[0].items);
@@ -1043,7 +1008,6 @@ test "Forest.remove_child" {
 }
 
 //#endregion forest
-
 
 //#region result
 pub const Layout = struct {
@@ -1054,11 +1018,7 @@ pub const Layout = struct {
     location: Point(f32),
 
     pub fn new() Self {
-        return Self {
-            .order = 0,
-            .size = ZeroSize(),
-            .location = ZeroPoint()
-        };
+        return Self{ .order = 0, .size = ZeroSize(), .location = ZeroPoint() };
     }
 };
 
@@ -1070,7 +1030,6 @@ pub const Cache = struct {
 };
 
 //#endregion result
-
 
 //#region algo
 
