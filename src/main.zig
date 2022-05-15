@@ -190,6 +190,24 @@ pub fn Size(comptime T: type) type {
     };
 }
 
+pub fn sizeAreEqual(left: Size(Number), right: Size(Number)) bool {
+    const width_equal = switch (left.width) {
+        .Defined => |lhs| switch (right.width) {
+            .Defined => |rhs| lhs == rhs,
+            else => false,
+        },
+        else => right.width.is_undefined(),
+    };
+    const height_equal = switch (left.height) {
+        .Defined => |lhs| switch (right.height) {
+            .Defined => |rhs| lhs == rhs,
+            else => false,
+        },
+        else => right.height.is_undefined(),
+    };
+    return width_equal and height_equal;
+}
+
 test "default size" {
     std.debug.print("\n zero size {any}\n", .{Size(Dimension).default()});
     try std.testing.expect(Size(Dimension).default().width == Dimension.Auto);
@@ -696,7 +714,7 @@ pub const MeasureFunc = union(enum) { Raw: MeasureFunction, Boxed: *MeasureFunct
 
 //#endregion
 
-//#region forest
+//#region forest + algo
 
 pub const NodeData = struct {
     const Self = @This();
@@ -728,13 +746,26 @@ pub const NodeData = struct {
     }
 };
 
-fn testMeasureFunc(s: Size(Number)) Size(f32) {
+pub const ComputeResult = struct {
+    const Self = @This();
+
+    size: Size(f32),
+
+    pub fn clone(self: *Self) Self {
+        return Self{ .size = Size(f32){
+            .width = self.size.width,
+            .height = self.size.height,
+        } };
+    }
+};
+
+fn echoMeasureFunc(s: Size(Number)) Size(f32) {
     return Size(f32){ .width = s.width.Defined, .height = s.height.Defined };
 }
 
 test "NodeData" {
     const leaf = NodeData.new_leaf(Style.default(), MeasureFunc{
-        .Raw = testMeasureFunc,
+        .Raw = echoMeasureFunc,
     });
     try std.testing.expect(leaf.is_dirty == true);
     try std.testing.expect(leaf.layout_cache == null);
@@ -743,6 +774,40 @@ test "NodeData" {
 
 pub const Forest = struct {
     const Self = @This();
+
+    const FlexItem = struct {
+        node: NodeId,
+
+        size: Size(Number),
+        min_size: Size(Number),
+        max_size: Size(Number),
+
+        position: Rect(Number),
+        margin: Rect(f32),
+        padding: Rect(f32),
+        border: Rect(f32),
+
+        flex_basis: f32,
+        inner_flex_basis: f32,
+        violation: f32,
+        frozen: bool,
+
+        hypothetical_inner_size: Size(f32),
+        hypothetical_outer_size: Size(f32),
+        target_size: Size(f32),
+        outer_target_size: Size(f32),
+
+        baseline: f32,
+
+        offset_main: f32,
+        offset_cross: f32,
+    };
+
+    const Flexline = struct {
+        items: []FlexItem,
+        cross_size: f32,
+        offset_cross: f32,
+    };
 
     nodes: Vec(NodeData),
     children: Vec(ChildrenVec(NodeId)),
@@ -901,6 +966,42 @@ pub const Forest = struct {
         return child;
     }
 
+    pub fn compute_layout(self: *Self, node: NodeId, size: Size(Number)) void {
+        self.compute(node, size);
+    }
+
+    pub fn compute(self: *Self, root: NodeId, size: Size(Number)) void {
+        const style = self.nodes.items[root].style;
+        const has_root_min_max = style.min_size.width.is_defined() or style.min_size.height.is_defined() or style.max_size.width.is_defined() or style.max_size.height.is_defined();
+        std.debug.print(" has_root_min_max = {}, size = {any} \n", .{ has_root_min_max, size });
+        if (has_root_min_max) {} else {
+            _ = self.compute_internal(root, style.size.resolve(size), size, true);
+        }
+    }
+
+    fn compute_internal(self: *Self, node: NodeId, node_size: Size(Number), parent_size: Size(Number), perform_layout: bool) ComputeResult {
+        self.nodes.items[node].is_dirty = false;
+        if (self.nodes.items[node].layout_cache) |*cache| {
+            if (cache.perform_layout or !perform_layout) {
+                const width_compatible = switch (node_size.width) {
+                    .Defined => |width| std.math.approxEqAbs(f32, width, cache.result.size.width, std.math.f32_epsilon),
+                    else => cache.node_size.width.is_undefined(),
+                };
+                const height_compatible = switch (node_size.height) {
+                    .Defined => |height| std.math.approxEqAbs(f32, height, cache.result.size.height, std.math.f32_epsilon),
+                    else => cache.node_size.height.is_undefined(),
+                };
+                if (width_compatible and height_compatible) {
+                    return cache.result.clone();
+                }
+                if (sizeAreEqual(cache.node_size, node_size) and sizeAreEqual(cache.parent_size, parent_size)) {
+                    return cache.result.clone();
+                }
+            }
+        }
+        unreachable;
+    }
+
     pub fn deinit(self: *Self) void {
         self.nodes.deinit();
         for (self.children.items) |*child| {
@@ -921,7 +1022,7 @@ test "Forest" {
         defer {
             forest.deinit();
         }
-        const nodeId = forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
+        const nodeId = forest.new_leaf(Style.default(), MeasureFunc{ .Raw = echoMeasureFunc });
         std.debug.print("\n forest.new_leaf = nodeId = {any}\n", .{nodeId});
     }
     {
@@ -935,7 +1036,7 @@ test "Forest" {
         defer forest.deinit();
         const node0 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
         const node1 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
-        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
+        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = echoMeasureFunc });
         try forest.add_child(node0, node1);
         forest.nodes.items[node0].is_dirty = false;
         forest.nodes.items[node1].is_dirty = false;
@@ -959,7 +1060,7 @@ test "Forest.swap_remove" {
         defer forest.deinit();
         const node0 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
         const node1 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
-        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
+        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = echoMeasureFunc });
         try forest.add_child(node1, node2);
         try forest.add_child(node0, node1);
         try std.testing.expectEqualSlices(NodeId, &[_]NodeId{0}, forest.parents.items[1].items);
@@ -976,7 +1077,7 @@ test "Forest.swap_remove" {
         defer forest.deinit();
         const node0 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
         const node1 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
-        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
+        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = echoMeasureFunc });
         try forest.add_child(node1, node2);
         try forest.add_child(node0, node1);
         try std.testing.expectEqualSlices(NodeId, &[_]NodeId{1}, forest.parents.items[2].items);
@@ -995,8 +1096,8 @@ test "Forest.remove_child" {
         var forest = try Forest.with_capacity(std.testing.allocator, 4);
         defer forest.deinit();
         const node0 = try forest.new_node(Style.default(), ChildrenVec(NodeId).init(std.testing.allocator));
-        const node1 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
-        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFunc });
+        const node1 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = echoMeasureFunc });
+        const node2 = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = echoMeasureFunc });
         try forest.add_child(node0, node1);
         try forest.add_child(node0, node2);
         try std.testing.expectEqualSlices(NodeId, &[_]NodeId{ 1, 2 }, forest.children.items[0].items);
@@ -1007,7 +1108,21 @@ test "Forest.remove_child" {
     }
 }
 
-//#endregion forest
+test "Forest.compute_layout" {
+    {
+        std.debug.print("  Basic\n.", .{});
+        var forest = try Forest.with_capacity(std.testing.allocator, 4);
+        defer forest.deinit();
+        const leaf_node = try forest.new_leaf(Style.default(), MeasureFunc{ .Raw = echoMeasureFunc });
+        var child_vec = try ChildrenVec(NodeId).initCapacity(std.testing.allocator, 1);
+        child_vec.appendAssumeCapacity(leaf_node);
+        const root_node = try forest.new_node(Style.default(), child_vec);
+        const parent_size = Size(Number){ .width = Number{ .Defined = 100.0 }, .height = Number{ .Defined = 100.0 } };
+        forest.compute_layout(root_node, parent_size);
+    }
+}
+
+//#endregion forest + algo
 
 //#region result
 pub const Layout = struct {
@@ -1030,11 +1145,3 @@ pub const Cache = struct {
 };
 
 //#endregion result
-
-//#region algo
-
-pub const ComputeResult = struct {
-    size: Size(f32),
-};
-
-//#endregion algo
