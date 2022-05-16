@@ -6,8 +6,9 @@ const Vec = std.ArrayList;
 const ChildrenVec = std.ArrayList;
 const ParentsVec = std.ArrayList;
 const Allocator = std.mem.Allocator;
-//#endregion
+//#endregion Container
 
+//#region geometry
 pub fn Rect(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -28,12 +29,12 @@ pub fn Rect(comptime T: type) type {
             @compileError("type parameter can only be 'Dimension' when constructing a default rect. ");
         }
 
-        pub fn map(self: Self, comptime R: type, f: fn (T) R) Rect(R) {
+        pub fn map(self: Self, comptime R: type, rect_mapper: RectMapper(T, R)) Rect(R) {
             return Rect(R){
-                .start = f(self.start),
-                .end = f(self.end),
-                .top = f(self.top),
-                .bottom = f(self.bottom),
+                .start = rect_mapper.map(self.start),
+                .end = rect_mapper.map(self.end),
+                .top = rect_mapper.map(self.top),
+                .bottom = rect_mapper.map(self.bottom),
             };
         }
 
@@ -265,6 +266,24 @@ test "Point" {
     std.debug.print("\npoint {any}\n", .{p});
 }
 
+fn RectMapper(comptime T: type, comptime R: type) type {
+    return struct {
+        const Self = @This();
+        parent_size: Number,
+        default_value: R,
+
+        pub fn map(self: *Self, d: T) R {
+            return d.resolve(self.parent_size).or_else(self.default_value);
+        }
+
+    };
+}
+
+//#endregion geometry
+
+//#region number
+
+
 pub const Number = union(enum) {
     Defined: f32,
     @"Undefined",
@@ -384,6 +403,10 @@ test "Number " {
     try testing.expect(std.meta.eql(n1.div(n1), Number.from(1.0)));
     try testing.expect(std.meta.eql(n1.mul(n1), Number.from(100)));
 }
+
+//#endregion number
+
+//#region style
 
 pub const AlignItems = enum {
     FlexStart,
@@ -700,11 +723,13 @@ test "default style" {
     try std.testing.expect(std.meta.eql(s.aspect_ration, Number.default()));
 }
 
+//#endregion style
+
 //#region id
 
 pub const NodeId = usize;
 
-//#endregion
+//#endregion id
 
 //#region node
 
@@ -712,7 +737,7 @@ const MeasureFunction = fn (Size(Number)) Size(f32);
 
 pub const MeasureFunc = union(enum) { Raw: MeasureFunction, Boxed: *MeasureFunction };
 
-//#endregion
+//#endregion node
 
 //#region forest + algo
 
@@ -973,7 +998,6 @@ pub const Forest = struct {
     pub fn compute(self: *Self, root: NodeId, size: Size(Number)) void {
         const style = self.nodes.items[root].style;
         const has_root_min_max = style.min_size.width.is_defined() or style.min_size.height.is_defined() or style.max_size.width.is_defined() or style.max_size.height.is_defined();
-        std.debug.print(" has_root_min_max = {}, size = {any} \n", .{ has_root_min_max, size });
         if (has_root_min_max) {} else {
             _ = self.compute_internal(root, style.size.resolve(size), size, true);
         }
@@ -999,6 +1023,18 @@ pub const Forest = struct {
                 }
             }
         }
+        //const dir = self.nodes.items[node].style.flex_direction;
+        //const is_row = dir.is_row();
+        //const is_column = dir.is_column();
+        //const is_wrap_reverse = self.nodes.items[node].style.flex_wrap == FlexWrap.WrapReverse;
+        var widthMapper = RectMapper(Dimension, f32) {
+            .parent_size = parent_size.width,
+            .default_value = 0.0,
+        };
+        const margin = self.nodes.items[node].style.margin.map(f32, widthMapper);
+        
+        std.debug.print("margin = {}\n", .{margin});
+        //const padding = self.nodes.items[node].style;
         unreachable;
     }
 
