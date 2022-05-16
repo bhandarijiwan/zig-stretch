@@ -350,9 +350,9 @@ pub const Number = union(enum) {
     }
 
     pub fn sub_f32(self: Number, other: f32) Number {
-        return switch(self) {
-          .Defined => | val | Number { .Defined = val - other },
-          else => Number.@"Undefined",
+        return switch (self) {
+            .Defined => |val| Number{ .Defined = val - other },
+            else => Number.@"Undefined",
         };
     }
 
@@ -996,19 +996,19 @@ pub const Forest = struct {
         return child;
     }
 
-    pub fn compute_layout(self: *Self, node: NodeId, size: Size(Number)) void {
-        self.compute(node, size);
+    pub fn compute_layout(self: *Self, node: NodeId, size: Size(Number)) !void {
+        try self.compute(node, size);
     }
 
-    pub fn compute(self: *Self, root: NodeId, size: Size(Number)) void {
+    pub fn compute(self: *Self, root: NodeId, size: Size(Number)) !void {
         const style = self.nodes.items[root].style;
         const has_root_min_max = style.min_size.width.is_defined() or style.min_size.height.is_defined() or style.max_size.width.is_defined() or style.max_size.height.is_defined();
         if (has_root_min_max) {} else {
-            _ = self.compute_internal(root, style.size.resolve(size), size, true);
+            _ = try self.compute_internal(root, style.size.resolve(size), size, true);
         }
     }
 
-    fn compute_internal(self: *Self, node: NodeId, node_size: Size(Number), parent_size: Size(Number), perform_layout: bool) ComputeResult {
+    fn compute_internal(self: *Self, node: NodeId, node_size: Size(Number), parent_size: Size(Number), perform_layout: bool) !ComputeResult {
         self.nodes.items[node].is_dirty = false;
         if (self.nodes.items[node].layout_cache) |*cache| {
             if (cache.perform_layout or !perform_layout) {
@@ -1032,22 +1032,14 @@ pub const Forest = struct {
         const is_row = dir.is_row();
         const is_column = dir.is_column();
         const is_wrap_reverse = self.nodes.items[node].style.flex_wrap == FlexWrap.WrapReverse;
-        const widthMapper = &RectMapper(Dimension, f32) {
-            .parent_size = parent_size.width,
-            .default_value = 0.0
-        };
+        const widthMapper = &RectMapper(Dimension, f32){ .parent_size = parent_size.width, .default_value = 0.0 };
         const margin = self.nodes.items[node].style.margin.map(f32, widthMapper);
         const padding = self.nodes.items[node].style.padding.map(f32, widthMapper);
         const border = self.nodes.items[node].style.border.map(f32, widthMapper);
 
-        const padding_border = Rect(f32) {
-            .start = padding.start + border.start,
-            .end = padding.end + border.end,
-            .top = padding.top + border.top,
-            .bottom = padding.bottom + border.bottom
-        };
+        const padding_border = Rect(f32){ .start = padding.start + border.start, .end = padding.end + border.end, .top = padding.top + border.top, .bottom = padding.bottom + border.bottom };
 
-        const node_inner_size = Size(Number) {
+        const node_inner_size = Size(Number){
             .width = node_size.width.sub_f32(padding_border.horizontal()),
             .height = node_size.height.sub_f32(padding_border.vertical()),
         };
@@ -1058,20 +1050,18 @@ pub const Forest = struct {
         // if this a leaf node we can skip a lot this function in some cases
         if (self.children.items[node].items.len == 0) {
             if (node_size.width.is_defined() and node_size.height.is_defined()) {
-                return ComputeResult {
-                    .size = Size(f32) {
-                        .width = node_size.width.or_else_f32(0.0),
-                        .height = node_size.height.or_else_f32(0.0),
-                    }
-                };
+                return ComputeResult{ .size = Size(f32){
+                    .width = node_size.width.or_else_f32(0.0),
+                    .height = node_size.height.or_else_f32(0.0),
+                } };
             }
 
-            if (self.nodes.items[node].measure) | *measure | {
-                var result = switch(measure.*) {
-                    .Raw => | measureFn | ComputeResult { .size = measureFn(node_size) },
-                    .Boxed => | measureFn | ComputeResult { .size = measureFn.*(node_size) },
+            if (self.nodes.items[node].measure) |*measure| {
+                var result = switch (measure.*) {
+                    .Raw => |measureFn| ComputeResult{ .size = measureFn(node_size) },
+                    .Boxed => |measureFn| ComputeResult{ .size = measureFn.*(node_size) },
                 };
-                self.nodes.items[node].layout_cache = Cache {
+                self.nodes.items[node].layout_cache = Cache{
                     .node_size = node_size,
                     .parent_size = parent_size,
                     .perform_layout = perform_layout,
@@ -1079,14 +1069,59 @@ pub const Forest = struct {
                 };
                 return result;
             }
-            return ComputeResult {
-                .size = Size(f32) {
-                    .width = node_size.width.or_else_f32(0.0) + padding_border.horizontal(),
-                    .height = node_size.height.or_else_f32(0.0) + padding_border.vertical(),
-                }
-            };
+            return ComputeResult{ .size = Size(f32){
+                .width = node_size.width.or_else_f32(0.0) + padding_border.horizontal(),
+                .height = node_size.height.or_else_f32(0.0) + padding_border.vertical(),
+            } };
         }
-        std.debug.print(" inner_container_size = {any}, container_size = {any}, node_inner_size = {any}, margin = {any}, is_wrap_reverse = {any}, is_column = {any}, is_row  = {}\n", .{ inner_container_size, container_size, node_inner_size, margin, is_wrap_reverse, is_column, is_row});
+        std.debug.print(" inner_container_size = {any}, container_size = {any}, node_inner_size = {any}, margin = {any}, is_wrap_reverse = {any}, is_column = {any}, is_row  = {}\n", .{ inner_container_size, container_size, node_inner_size, margin, is_wrap_reverse, is_column, is_row });
+        // 9.2 Line Length Determination
+        // 1. Generate anonymous flex items as described as 4 Flex Items.
+        //
+
+        const available_space = Size(Number){
+            .width = node_size.width.or_else(parent_size.width.sub_f32(margin.horizontal())).sub_f32(padding_border.horizontal()),
+            .height = node_size.height.or_else(parent_size.height.sub_f32(margin.vertical())).sub_f32(padding_border.vertical()),
+        };
+        var flex_items = Vec(FlexItem).init(self.allocator);
+
+        const inner_size_width_mapper = &RectMapper(Dimension, f32){ .parent_size = node_inner_size.width, .default_value = 0.0 };
+
+        for (self.children.items[node].items) |child| {
+            const child_style = &self.nodes.items[child].style;
+            if (child_style.position_type != PositionType.Absolute and child_style.display != Display.None) {
+                try flex_items.append(FlexItem{
+                    .node = child,
+                    .size = child_style.size.resolve(node_inner_size),
+                    .min_size = child_style.min_size.resolve(node_inner_size),
+                    .max_size = child_style.max_size.resolve(node_inner_size),
+                    .position = Rect(Number){
+                        .start = child_style.position.start.resolve(node_inner_size.width),
+                        .end = child_style.position.end.resolve(node_inner_size.width),
+                        .top = child_style.position.top.resolve(node_inner_size.width),
+                        .bottom = child_style.position.bottom.resolve(node_inner_size.width),
+                    },
+                    .margin = child_style.margin.map(f32, inner_size_width_mapper),
+                    .padding = child_style.margin.map(f32, inner_size_width_mapper),
+                    .border = child_style.padding.map(f32, inner_size_width_mapper),
+                    .flex_basis = 0.0,
+                    .inner_flex_basis = 0.0,
+                    .violation = 0.0,
+                    .frozen = false,
+
+                    .hypothetical_inner_size = ZeroSize(),
+                    .hypothetical_outer_size = ZeroSize(),
+                    .target_size = ZeroSize(),
+                    .outer_target_size = ZeroSize(),
+
+                    .baseline = 0.0,
+                    .offset_main = 0.0,
+                    .offset_cross = 0.0,
+                });
+            }
+        }
+
+        std.debug.print(" available_space = {} flex_items = {} \n", .{ available_space, flex_items });
         unreachable;
     }
 
@@ -1206,7 +1241,7 @@ test "Forest.compute_layout" {
         child_vec.appendAssumeCapacity(leaf_node);
         const root_node = try forest.new_node(Style.default(), child_vec);
         const parent_size = Size(Number){ .width = Number{ .Defined = 100.0 }, .height = Number{ .Defined = 100.0 } };
-        forest.compute_layout(root_node, parent_size);
+        forest.compute_layout(root_node, parent_size) catch {};
     }
 }
 
