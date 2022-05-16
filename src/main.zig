@@ -369,7 +369,7 @@ pub const Number = union(enum) {
     pub fn maybe_min(self: Number, rhs: Number) Number {
         return switch (self) {
             .Defined => switch (rhs) {
-                .Defined => Number{ .Defined = std.math.f32_min(self.Defined, rhs.Defined) },
+                .Defined => Number{ .Defined = std.math.min(self.Defined, rhs.Defined) },
                 else => self,
             },
             else => Number.@"Undefined",
@@ -379,9 +379,23 @@ pub const Number = union(enum) {
     pub fn maybe_max(self: Number, rhs: Number) Number {
         return switch (self) {
             .Defined => switch (rhs) {
-                .Defined => Number{ .Defined = std.math.f32_max(self.Defined, rhs.Defined) },
+                .Defined => Number{ .Defined = std.math.max(self.Defined, rhs.Defined) },
                 else => self,
             },
+            else => Number.@"Undefined",
+        };
+    }
+
+    pub fn maybe_max_f32(self: Number, rhs: f32) Number {
+        return switch (self) {
+            .Defined => Number{ .Defined = std.math.max(self.Defined, rhs) },
+            else => Number.@"Undefined",
+        };
+    }
+
+    pub fn maybe_min_f32(self: Number, rhs: f32) Number {
+        return switch (self) {
+            .Defined => Number { .Defined = std.math.min(self.Defined, rhs) },
             else => Number.@"Undefined",
         };
     }
@@ -409,6 +423,19 @@ test "Number " {
     try testing.expect(std.meta.eql(n1.mul(n1), Number.from(100)));
 }
 
+fn maybe_max_f32_number(lhs: f32, rhs: Number) f32 {
+    return switch(rhs) {
+       .Defined => std.math.max(lhs, rhs.Defined),
+       else => lhs
+    };
+}
+
+fn maybe_min_f32_number(lhs: f32, rhs: Number) f32 {
+    return switch(rhs) {
+       .Defined => std.math.min(lhs, rhs.Defined),
+       else => lhs
+    };
+}
 //#endregion number
 
 //#region style
@@ -588,7 +615,7 @@ pub const Style = struct {
     size: Size(Dimension),
     min_size: Size(Dimension),
     max_size: Size(Dimension),
-    aspect_ration: Number,
+    aspect_ratio: Number,
 
     pub fn default() Self {
         return Self{
@@ -612,7 +639,7 @@ pub const Style = struct {
             .size = Size(Dimension).default(),
             .min_size = Size(Dimension).default(),
             .max_size = Size(Dimension).default(),
-            .aspect_ration = Number.default(),
+            .aspect_ratio = Number.default(),
         };
     }
 
@@ -725,7 +752,7 @@ test "default style" {
     try std.testing.expect(std.meta.eql(s.size, Size(Dimension).default()));
     try std.testing.expect(std.meta.eql(s.min_size, Size(Dimension).default()));
     try std.testing.expect(std.meta.eql(s.max_size, Size(Dimension).default()));
-    try std.testing.expect(std.meta.eql(s.aspect_ration, Number.default()));
+    try std.testing.expect(std.meta.eql(s.aspect_ratio, Number.default()));
 }
 
 //#endregion style
@@ -1008,7 +1035,7 @@ pub const Forest = struct {
         }
     }
 
-    fn compute_internal(self: *Self, node: NodeId, node_size: Size(Number), parent_size: Size(Number), perform_layout: bool) !ComputeResult {
+    fn compute_internal(self: *Self, node: NodeId, node_size: Size(Number), parent_size: Size(Number), perform_layout: bool) Allocator.Error!ComputeResult {
         self.nodes.items[node].is_dirty = false;
         if (self.nodes.items[node].layout_cache) |*cache| {
             if (cache.perform_layout or !perform_layout) {
@@ -1031,7 +1058,7 @@ pub const Forest = struct {
         const dir = self.nodes.items[node].style.flex_direction;
         const is_row = dir.is_row();
         const is_column = dir.is_column();
-        const is_wrap_reverse = self.nodes.items[node].style.flex_wrap == FlexWrap.WrapReverse;
+        //const is_wrap_reverse = self.nodes.items[node].style.flex_wrap == FlexWrap.WrapReverse;
         const widthMapper = &RectMapper(Dimension, f32){ .parent_size = parent_size.width, .default_value = 0.0 };
         const margin = self.nodes.items[node].style.margin.map(f32, widthMapper);
         const padding = self.nodes.items[node].style.padding.map(f32, widthMapper);
@@ -1044,8 +1071,8 @@ pub const Forest = struct {
             .height = node_size.height.sub_f32(padding_border.vertical()),
         };
 
-        var container_size = ZeroSize();
-        var inner_container_size = ZeroSize();
+        //var container_size = ZeroSize();
+        //var inner_container_size = ZeroSize();
 
         // if this a leaf node we can skip a lot this function in some cases
         if (self.children.items[node].items.len == 0) {
@@ -1074,7 +1101,7 @@ pub const Forest = struct {
                 .height = node_size.height.or_else_f32(0.0) + padding_border.vertical(),
             } };
         }
-        std.debug.print(" inner_container_size = {any}, container_size = {any}, node_inner_size = {any}, margin = {any}, is_wrap_reverse = {any}, is_column = {any}, is_row  = {}\n", .{ inner_container_size, container_size, node_inner_size, margin, is_wrap_reverse, is_column, is_row });
+        
         // 9.2 Line Length Determination
         // 1. Generate anonymous flex items as described as 4 Flex Items.
         //
@@ -1119,6 +1146,76 @@ pub const Forest = struct {
                 });
                 has_baseline_child = if (!has_baseline_child) child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Baseline else has_baseline_child;
             }
+        }
+        // 3. Determine the flex base size and hypothetical main size of each item:
+        for (flex_items.items) |*child| {
+            const child_style = &self.nodes.items[child.node].style;
+
+            // A. If the item has a definite used flex basis, that's the flex base size.
+
+            const flex_basis = child_style.flex_basis.resolve(node_inner_size.main(dir));
+            if (flex_basis.is_defined()) {
+                child.flex_basis = flex_basis.or_else_f32(0.0);
+                continue;
+            }
+
+            // B. If the flex item has a intrinsic aspect ratio,
+            //    a used flex basis of content and a definite cross size
+            //    then the flex base size is calculated from it's inner
+            //    cross size and the flex item's intrinsic aspect ratio.
+
+            if (child_style.aspect_ratio == Number.Defined) {
+                const cross = node_size.cross(dir);
+                if (cross == Number.Defined) {
+                    if (child_style.flex_basis == Dimension.Auto) {
+                        child.flex_basis = cross.Defined * child_style.aspect_ratio.Defined;
+                        continue;
+                    }
+                }
+            }
+
+            // C. If the used flex basis is content or depends on its available space,
+            //    and the flex container is being sized under a min-content or max-content
+            //    constraint (e.g. when performing automatic table layout [CSS21]),
+            //    size the item under that constraint. The flex base size is the item’s
+            //    resulting main size.
+
+            // TODO - Probably need to cover this case in future
+
+            // D. Otherwise, if the used flex basis is content or depends on its
+            //    available space, the available main size is infinite, and the flex item’s
+            //    inline axis is parallel to the main axis, lay the item out using the rules
+            //    for a box in an orthogonal flow [CSS3-WRITING-MODES]. The flex base size
+            //    is the item’s max-content main size.
+
+            // TODO - Probably need to cover this case in future
+
+            // E. Otherwise, size the item into the available space using its used flex basis
+            //    in place of its main size, treating a value of content as max-content.
+            //    If a cross size is needed to determine the main size (e.g. when the
+            //    flex item’s main size is in its block axis) and the flex item’s cross size
+            //    is auto and not definite, in this calculation use fit-content as the
+            //    flex item’s cross size. The flex base size is the item’s resulting main size.
+
+            const width: Number = if (child.size.width.is_defined() and
+                child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Stretch and
+                is_column) available_space.width else child.size.width;
+
+            const height: Number = if (child.size.height.is_defined() and
+                child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Stretch and
+                is_row) available_space.height else child.size.height;
+
+            const child_parent_size = Size(Number) {
+                .width = width.maybe_max(child.min_size.width).maybe_min(child.max_size.width),
+                .height = height.maybe_max(child.min_size.height).maybe_min(child.max_size.height),
+            };
+            
+            std.debug.print("child_parent_size : {any}, available_space = {any} node_size = {any} node_inner_size = {any} \n", .{child_parent_size, available_space, node_size, node_inner_size});
+            const child_flex_basis_size = try self.compute_internal(child.node, child_parent_size, available_space, false);
+            child.flex_basis = maybe_min_f32_number(
+                maybe_max_f32_number(child_flex_basis_size.size.main(dir), child.min_size.main(dir)),
+                child.max_size.main(dir)
+            );
         }
 
         std.debug.print(" available_space = {} flex_items = {} \n", .{ available_space, flex_items });
