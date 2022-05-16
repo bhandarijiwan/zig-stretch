@@ -688,9 +688,9 @@ pub const Style = struct {
         }
     }
 
-    pub fn align_self(self: Self, parent: Style) AlignSelf {
+    pub fn align_self_fn(self: Self, parent: *Style) AlignSelf {
         if (self.align_self == AlignSelf.Auto) {
-            return switch (parent) {
+            return switch (parent.*.align_items) {
                 .FlexStart => AlignSelf.FlexStart,
                 .FlexEnd => AlignSelf.FlexEnd,
                 .Center => AlignSelf.Center,
@@ -1084,9 +1084,8 @@ pub const Forest = struct {
             .height = node_size.height.or_else(parent_size.height.sub_f32(margin.vertical())).sub_f32(padding_border.vertical()),
         };
         var flex_items = Vec(FlexItem).init(self.allocator);
-
         const inner_size_width_mapper = &RectMapper(Dimension, f32){ .parent_size = node_inner_size.width, .default_value = 0.0 };
-
+        var has_baseline_child = false;
         for (self.children.items[node].items) |child| {
             const child_style = &self.nodes.items[child].style;
             if (child_style.position_type != PositionType.Absolute and child_style.display != Display.None) {
@@ -1118,6 +1117,7 @@ pub const Forest = struct {
                     .offset_main = 0.0,
                     .offset_cross = 0.0,
                 });
+                has_baseline_child = if (!has_baseline_child) child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Baseline else has_baseline_child;
             }
         }
 
