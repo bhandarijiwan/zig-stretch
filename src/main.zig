@@ -1055,6 +1055,7 @@ pub const Forest = struct {
                 }
             }
         }
+        std.debug.print("\n\n\n parent_size = {any} \n\n\n", .{ parent_size });
         const dir = self.nodes.items[node].style.flex_direction;
         const is_row = dir.is_row();
         const is_column = dir.is_column();
@@ -1216,6 +1217,23 @@ pub const Forest = struct {
                 maybe_max_f32_number(child_flex_basis_size.size.main(dir), child.min_size.main(dir)),
                 child.max_size.main(dir)
             );
+        }
+
+        // The hypothetical main size is the item’s flex base size clamped according to its
+        // used min and max main sizes (and flooring the content box size at zero).
+
+        for(flex_items.items) | *child | {
+            child.inner_flex_basis = child.flex_basis - child.padding.main(dir) - child.border.main(dir);
+            // TODO - not really spec abiding but needs to be done somewhere. probably somewhere else though.
+            // The following logic was developed not from the spec but by trail and error looking into how
+            // webkit handled various scenarios. Can probably be solved better by passing in
+            // min-content max-content constraints from the top
+            const min_main_size = try compute_internal(child.node, UndefinedSize(), available_space, false);
+            const min_main = maybe_min_f32_number(
+                maybe_max_f32_number(min_main_size.main(dir), child.min_size.main(dir)),
+                child.size.main(dir)
+            );
+            
         }
 
         std.debug.print(" available_space = {} flex_items = {} \n", .{ available_space, flex_items });
