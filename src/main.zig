@@ -29,7 +29,7 @@ pub fn Rect(comptime T: type) type {
             @compileError("type parameter can only be 'Dimension' when constructing a default rect. ");
         }
 
-        pub fn map(self: Self, comptime R: type, rect_mapper: RectMapper(T, R)) Rect(R) {
+        pub fn map(self: Self, comptime R: type, rect_mapper: *RectMapper(T, R)) Rect(R) {
             return Rect(R){
                 .start = rect_mapper.map(self.start),
                 .end = rect_mapper.map(self.end),
@@ -273,16 +273,14 @@ fn RectMapper(comptime T: type, comptime R: type) type {
         default_value: R,
 
         pub fn map(self: *Self, d: T) R {
-            return d.resolve(self.parent_size).or_else(self.default_value);
+            return d.resolve(self.parent_size).or_else_f32(self.default_value);
         }
-
     };
 }
 
 //#endregion geometry
 
 //#region number
-
 
 pub const Number = union(enum) {
     Defined: f32,
@@ -348,6 +346,13 @@ pub const Number = union(enum) {
                 else => self,
             },
             else => Number.@"Undefined",
+        };
+    }
+
+    pub fn sub_f32(self: Number, other: f32) Number {
+        return switch(self) {
+          .Defined => | val | Number { .Defined = val - other },
+          else => Number.@"Undefined",
         };
     }
 
@@ -1023,18 +1028,65 @@ pub const Forest = struct {
                 }
             }
         }
-        //const dir = self.nodes.items[node].style.flex_direction;
-        //const is_row = dir.is_row();
-        //const is_column = dir.is_column();
-        //const is_wrap_reverse = self.nodes.items[node].style.flex_wrap == FlexWrap.WrapReverse;
-        var widthMapper = RectMapper(Dimension, f32) {
+        const dir = self.nodes.items[node].style.flex_direction;
+        const is_row = dir.is_row();
+        const is_column = dir.is_column();
+        const is_wrap_reverse = self.nodes.items[node].style.flex_wrap == FlexWrap.WrapReverse;
+        const widthMapper = &RectMapper(Dimension, f32) {
             .parent_size = parent_size.width,
-            .default_value = 0.0,
+            .default_value = 0.0
         };
         const margin = self.nodes.items[node].style.margin.map(f32, widthMapper);
-        
-        std.debug.print("margin = {}\n", .{margin});
-        //const padding = self.nodes.items[node].style;
+        const padding = self.nodes.items[node].style.padding.map(f32, widthMapper);
+        const border = self.nodes.items[node].style.border.map(f32, widthMapper);
+
+        const padding_border = Rect(f32) {
+            .start = padding.start + border.start,
+            .end = padding.end + border.end,
+            .top = padding.top + border.top,
+            .bottom = padding.bottom + border.bottom
+        };
+
+        const node_inner_size = Size(Number) {
+            .width = node_size.width.sub_f32(padding_border.horizontal()),
+            .height = node_size.height.sub_f32(padding_border.vertical()),
+        };
+
+        var container_size = ZeroSize();
+        var inner_container_size = ZeroSize();
+
+        // if this a leaf node we can skip a lot this function in some cases
+        if (self.children.items[node].items.len == 0) {
+            if (node_size.width.is_defined() and node_size.height.is_defined()) {
+                return ComputeResult {
+                    .size = Size(f32) {
+                        .width = node_size.width.or_else_f32(0.0),
+                        .height = node_size.height.or_else_f32(0.0),
+                    }
+                };
+            }
+
+            if (self.nodes.items[node].measure) | *measure | {
+                var result = switch(measure.*) {
+                    .Raw => | measureFn | ComputeResult { .size = measureFn(node_size) },
+                    .Boxed => | measureFn | ComputeResult { .size = measureFn.*(node_size) },
+                };
+                self.nodes.items[node].layout_cache = Cache {
+                    .node_size = node_size,
+                    .parent_size = parent_size,
+                    .perform_layout = perform_layout,
+                    .result = result.clone(),
+                };
+                return result;
+            }
+            return ComputeResult {
+                .size = Size(f32) {
+                    .width = node_size.width.or_else_f32(0.0) + padding_border.horizontal(),
+                    .height = node_size.height.or_else_f32(0.0) + padding_border.vertical(),
+                }
+            };
+        }
+        std.debug.print(" inner_container_size = {any}, container_size = {any}, node_inner_size = {any}, margin = {any}, is_wrap_reverse = {any}, is_column = {any}, is_row  = {}\n", .{ inner_container_size, container_size, node_inner_size, margin, is_wrap_reverse, is_column, is_row});
         unreachable;
     }
 
