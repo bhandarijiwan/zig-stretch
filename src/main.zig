@@ -3,6 +3,7 @@ const testing = std.testing;
 
 //#region Container
 const Vec = std.ArrayList;
+const Map = std.AutoHashMap;
 const ChildrenVec = std.ArrayList;
 const ParentsVec = std.ArrayList;
 const Allocator = std.mem.Allocator;
@@ -395,7 +396,7 @@ pub const Number = union(enum) {
 
     pub fn maybe_min_f32(self: Number, rhs: f32) Number {
         return switch (self) {
-            .Defined => Number { .Defined = std.math.min(self.Defined, rhs) },
+            .Defined => Number{ .Defined = std.math.min(self.Defined, rhs) },
             else => Number.@"Undefined",
         };
     }
@@ -424,16 +425,16 @@ test "Number " {
 }
 
 fn maybe_max_f32_number(lhs: f32, rhs: Number) f32 {
-    return switch(rhs) {
-       .Defined => std.math.max(lhs, rhs.Defined),
-       else => lhs
+    return switch (rhs) {
+        .Defined => std.math.max(lhs, rhs.Defined),
+        else => lhs,
     };
 }
 
 fn maybe_min_f32_number(lhs: f32, rhs: Number) f32 {
-    return switch(rhs) {
-       .Defined => std.math.min(lhs, rhs.Defined),
-       else => lhs
+    return switch (rhs) {
+        .Defined => std.math.min(lhs, rhs.Defined),
+        else => lhs,
     };
 }
 //#endregion number
@@ -760,16 +761,27 @@ test "default style" {
 //#region id
 
 pub const NodeId = usize;
+pub const Id = usize;
+
+const IdAllocator = struct {
+    const Self = @This();
+
+    new_id: std.atomic.Atomic(usize),
+
+    pub fn new() Self {
+        return Self{
+            .new_id = std.atomic.Atomic(usize).init(0),
+        };
+    }
+
+    pub fn allocate(self: *Self) Id {
+        return self.new_id.fetchAdd(1, .Monotonic);
+    }
+
+    pub fn free(_: *Self, _: []Id) void {}
+};
 
 //#endregion id
-
-//#region node
-
-const MeasureFunction = fn (Size(Number)) Size(f32);
-
-pub const MeasureFunc = union(enum) { Raw: MeasureFunction, Boxed: *MeasureFunction };
-
-//#endregion node
 
 //#region forest + algo
 
@@ -1055,7 +1067,7 @@ pub const Forest = struct {
                 }
             }
         }
-        std.debug.print("\n\n\n parent_size = {any} \n\n\n", .{ parent_size });
+        std.debug.print("\n\n\n parent_size = {any} \n\n\n", .{parent_size});
         const dir = self.nodes.items[node].style.flex_direction;
         const is_row = dir.is_row();
         const is_column = dir.is_column();
@@ -1102,7 +1114,7 @@ pub const Forest = struct {
                 .height = node_size.height.or_else_f32(0.0) + padding_border.vertical(),
             } };
         }
-        
+
         // 9.2 Line Length Determination
         // 1. Generate anonymous flex items as described as 4 Flex Items.
         //
@@ -1206,34 +1218,27 @@ pub const Forest = struct {
                 child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Stretch and
                 is_row) available_space.height else child.size.height;
 
-            const child_parent_size = Size(Number) {
+            const child_parent_size = Size(Number){
                 .width = width.maybe_max(child.min_size.width).maybe_min(child.max_size.width),
                 .height = height.maybe_max(child.min_size.height).maybe_min(child.max_size.height),
             };
-            
-            std.debug.print("child_parent_size : {any}, available_space = {any} node_size = {any} node_inner_size = {any} \n", .{child_parent_size, available_space, node_size, node_inner_size});
+
+            std.debug.print("child_parent_size : {any}, available_space = {any} node_size = {any} node_inner_size = {any} \n", .{ child_parent_size, available_space, node_size, node_inner_size });
             const child_flex_basis_size = try self.compute_internal(child.node, child_parent_size, available_space, false);
-            child.flex_basis = maybe_min_f32_number(
-                maybe_max_f32_number(child_flex_basis_size.size.main(dir), child.min_size.main(dir)),
-                child.max_size.main(dir)
-            );
+            child.flex_basis = maybe_min_f32_number(maybe_max_f32_number(child_flex_basis_size.size.main(dir), child.min_size.main(dir)), child.max_size.main(dir));
         }
 
         // The hypothetical main size is the item’s flex base size clamped according to its
         // used min and max main sizes (and flooring the content box size at zero).
 
-        for(flex_items.items) | *child | {
+        for (flex_items.items) |*child| {
             child.inner_flex_basis = child.flex_basis - child.padding.main(dir) - child.border.main(dir);
             // TODO - not really spec abiding but needs to be done somewhere. probably somewhere else though.
             // The following logic was developed not from the spec but by trail and error looking into how
             // webkit handled various scenarios. Can probably be solved better by passing in
             // min-content max-content constraints from the top
-            const min_main_size = try compute_internal(child.node, UndefinedSize(), available_space, false);
-            const min_main = maybe_min_f32_number(
-                maybe_max_f32_number(min_main_size.main(dir), child.min_size.main(dir)),
-                child.size.main(dir)
-            );
-            
+            const min_main_size = try self.compute_internal(child.node, UndefinedSize(), available_space, false);
+            _ = maybe_min_f32_number(maybe_max_f32_number(min_main_size.size.main(dir), child.min_size.main(dir)), child.size.main(dir));
         }
 
         std.debug.print(" available_space = {} flex_items = {} \n", .{ available_space, flex_items });
@@ -1383,3 +1388,86 @@ pub const Cache = struct {
 };
 
 //#endregion result
+
+//#region node
+
+const MeasureFunction = fn (Size(Number)) Size(f32);
+
+pub const MeasureFunc = union(enum) { Raw: MeasureFunction, Boxed: *MeasureFunction };
+
+var INSTANCE_ALLOCATOR: IdAllocator = IdAllocator.new();
+
+pub const Node = struct { instance: Id, local: Id };
+
+pub const Error = error {
+    InvalidNode
+}
+
+pub const Stretch = struct {
+    const Self = @This();
+
+    id: Id,
+    nodes: Allocator,
+    nodes_to_ids: Map(Node, NodeId),
+    ids_to_nodes: Map(NodeId, Node),
+    forest: Forest,
+
+    fn default() Self {
+        return Self.with_capacity(16);
+    }
+
+    pub fn new() Self {
+        return Self.default();
+    }
+
+    fn new_nodes_to_id_map_with_capacity(allocator: Allocator, capacity: usize) Allocator.Error!Self {
+        var m = Map(Node, NodeId).init(allocator);
+        try m.ensureTotalCapacity(capacity);
+        return m;
+    }
+
+    fn new_ids_to_nodes_map_with_capacity(allocator: Allocator, capacity: usize) Allocator.Error!Self {
+        var m = Map(Node, NodeId).init(allocator);
+        try m.ensureTotalCapacity(capacity);
+        return m;
+    }
+
+    pub fn with_capacity(allocator: Allocator, capacity: usize) Allocator.Error!Self {
+        return Self{
+            .id = INSTANCE_ALLOCATOR.allocate(),
+            .nodes = IdAllocator.new(),
+            .nodes_to_ids = try new_nodes_to_id_map_with_capacity(allocator, capacity),
+            .ids_to_nodes = try new_ids_to_nodes_map_with_capacity(allocator, capacity),
+            .forest = try Forest.with_capacity(allocator, capacity),
+        };
+    }
+
+    fn allocate_node(self: *Self) Node {
+        return Node{
+            .instance = self.id,
+            .local = self.nodes.allocate(),
+        };
+    }
+
+    pub fn new_leaf(self: *Self, style: Style, measure: MeasureFunc) !Node {
+        const node = self.allocate_node();
+        const id = try self.forest.new_leaf(style, measure);
+        self.add_node(node, id);
+        return node;
+    }
+
+    fn find_node(self: *Self, node: Node) !NodeId {
+        if (self.nodes_to_ids.get(node)) | id | {
+            return id;
+        } else {
+            return Error.InvalidNode;
+        }
+    }
+
+    pub fn new_node(self: *Self, style: Style, children: []Node) !Node {
+        const node = self.allocate_node();
+        
+    }
+};
+
+//#endregion node
