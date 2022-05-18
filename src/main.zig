@@ -1018,19 +1018,23 @@ pub const Forest = struct {
         return self.remove_child_at_index(node, index);
     }
 
-    pub fn remove_child_at_index(self: *Self, node: NodeId, index: usize) Allocator.Error!NodeId {
-        const child = self.children.items[node].orderedRemove(index);
+    fn remove_parent_of_node(self: *Self, node: NodeId, parent_to_remove: NodeId) Allocator.Error!void {
         var count: usize = 0;
-        var new_vec = try ParentsVec(NodeId).initCapacity(self.allocator, self.parents.items[child].items.len);
-        for (self.parents.items[child].items) |parent| {
-            if (parent != node) {
+        var new_vec = try ParentsVec(NodeId).initCapacity(self.allocator, self.parents.items[node].items.len);
+        for (self.parents.items[node].items) |parent| {
+            if (parent != parent_to_remove) {
                 new_vec.appendAssumeCapacity(parent);
                 count += 1;
             }
         }
         new_vec.shrinkAndFree(count);
-        self.parents.items[child].deinit();
-        self.parents.items[child] = new_vec;
+        self.parents.items[node].deinit();
+        self.parents.items[node] = new_vec;
+    }
+
+    pub fn remove_child_at_index(self: *Self, node: NodeId, index: usize) Allocator.Error!NodeId {
+        const child = self.children.items[node].orderedRemove(index);
+        try self.remove_parent_of_node(child, node);
         self.mark_dirty(node);
         return child;
     }
@@ -1541,13 +1545,18 @@ pub const Stretch = struct {
     pub fn remove_child_at_index(self: *Self, node: Node, index: usize) !Node {
         const node_id = try self.find_node(node);
         const prev_id = try self.forest.remove_child_at_index(node_id, index);
-        return self.ids_to_nodes[prev_id].?;
+        return self.ids_to_nodes.get(prev_id).?;
     }
 
     pub fn replace_child_at_index(self: *Self, node: Node, index: usize, child: Node) !Node {
         const node_id = try self.find_node(node);
         const child_id = try self.find_node(child);
         try self.forest.parents.items[child_id].append(node_id);
+        const old_child = self.forest.children.items[node_id].items[index];
+        self.forest.children.items[node_id].items[index] = child_id;
+        try self.forest.remove_parent_of_node(old_child, node_id);
+        self.forest.mark_dirty(node_id);
+        return self.ids_to_nodes.get(old_child).?;
     }
 };
 
