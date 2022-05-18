@@ -1412,12 +1412,12 @@ pub const Stretch = struct {
     ids_to_nodes: Map(NodeId, Node),
     forest: Forest,
 
-    fn default() Self {
-        return Self.with_capacity(16);
+    fn default(allocator: Allocator) Self {
+        return Self.with_capacity(allocator, 16);
     }
 
-    pub fn new() Self {
-        return Self.default();
+    pub fn new(allocator: Allocator) Self {
+        return Self.default(allocator);
     }
 
     fn new_nodes_to_id_map_with_capacity(allocator: Allocator, capacity: usize) Allocator.Error!Self {
@@ -1439,6 +1439,7 @@ pub const Stretch = struct {
             .nodes_to_ids = try new_nodes_to_id_map_with_capacity(allocator, capacity),
             .ids_to_nodes = try new_ids_to_nodes_map_with_capacity(allocator, capacity),
             .forest = try Forest.with_capacity(allocator, capacity),
+            .allocator = allocator
         };
     }
 
@@ -1471,7 +1472,7 @@ pub const Stretch = struct {
 
     pub fn new_node(self: *Self, style: Style, children: []Node) !Node {
         const node = self.allocate_node();
-        var children_vec = ChildrenVec(NodeId);
+        var children_vec = ChildrenVec(NodeId).init(self.allocator);
         for(children) | *child | {
             const node_id = try self.find_node(child.*);
             try children_vec.append(node_id);
@@ -1503,6 +1504,51 @@ pub const Stretch = struct {
         self.forest.swap_remove(id);
     }
 
+    pub fn set_measure(self: *Self, node: Node, measure: ?MeasureFunc) !void {
+        const id = try self.find_node(node);
+        self.forest.nodes.items[id].measure = measure;
+        self.forest.mark_dirty(id);
+    }
+
+    pub fn add_child(self: *Self, node: Node, child: Node) !void {
+        const node_id = try self.find_node(node);
+        const child_id = try self.find_node(child);
+        try self.forest.add_child(node_id, child_id);
+    }
+
+    pub fn set_children(self: *Self, node: Node, children: []Node) !void {
+        const node_id = try self.find_node(node);
+        var children_id = ChildrenVec(NodeId).init(self.allocator);
+        for(children) | *child | {
+           const id = try self.find_node(child.*);
+           try children_id.append(id);
+        }
+        // Remove node as parent from all its current children.
+        for(self.forest.children.items[node_id].items) | *child | {
+            try self.forest.parents.items[child.*].append(node_id);
+        }
+        self.forest.children.items[node_id] = children_id;
+        self.forest.mark_dirty(node_id);
+    }
+
+    pub fn remove_child(self: *Self, node: Node, child: Node) !Node {
+        const node_id = try self.find_node(node);
+        const child_id = try self.find_node(child);
+        const prev_id = try self.forest.remove_child(node_id, child_id);
+        return self.ids_to_nodes.get(prev_id).?;
+    }
+
+    pub fn remove_child_at_index(self: *Self, node: Node, index: usize) !Node {
+        const node_id = try self.find_node(node);
+        const prev_id = try self.forest.remove_child_at_index(node_id, index);
+        return self.ids_to_nodes[prev_id].?;
+    }
+
+    pub fn replace_child_at_index(self: *Self, node: Node, index: usize, child: Node) !Node {
+        const node_id = try self.find_node(node);
+        const child_id = try self.find_node(child);
+        try self.forest.parents.items[child_id].append(node_id);
+    }
 };
 
 //#endregion node
