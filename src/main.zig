@@ -1401,7 +1401,7 @@ pub const Node = struct { instance: Id, local: Id };
 
 pub const Error = error {
     InvalidNode
-}
+};
 
 pub const Stretch = struct {
     const Self = @This();
@@ -1466,7 +1466,14 @@ pub const Stretch = struct {
 
     pub fn new_node(self: *Self, style: Style, children: []Node) !Node {
         const node = self.allocate_node();
-        
+        var children_vec = ChildrenVec(NodeId);
+        for(children) | *child | {
+            const node_id = try self.find_node(child.*);
+            try children_vec.append(node_id);
+        }
+        const id = self.forest.new_node(style, children_vec);
+        self.add_node(node, id);
+        return node;
     }
 };
 
