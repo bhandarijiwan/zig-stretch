@@ -1449,10 +1449,15 @@ pub const Stretch = struct {
         };
     }
 
+    fn add_node(self: *Self, node: Node, id: NodeId) !void {
+        _ = try self.nodes_to_ids.put(node, id);
+        _ = try self.ids_to_nodes.insert(id, node);
+    }
+
     pub fn new_leaf(self: *Self, style: Style, measure: MeasureFunc) !Node {
         const node = self.allocate_node();
         const id = try self.forest.new_leaf(style, measure);
-        self.add_node(node, id);
+        try self.add_node(node, id);
         return node;
     }
 
@@ -1475,6 +1480,29 @@ pub const Stretch = struct {
         self.add_node(node, id);
         return node;
     }
+
+    /// Removes all nodes.
+    ///
+    /// All associated nodes will be invalid.
+    pub fn clear(self: *Self) void {
+        self.nodes_to_ids.clearAndFree();
+        self.ids_to_nodes.clearAndFree();
+        self.forest.clear();
+    }
+
+    /// Remove nodes.
+    pub fn remove(self: *Self, node: Node) void {
+        const id = self.find_node(node) catch return;
+        _ = self.nodes_to_ids.removeByPtr(&node);
+        _ = self.ids_to_nodes.removeByPtr(&id);
+        if (self.forest.swap_remove(id)) | new_id | {
+            const brand_new_node = self.ids_to_nodes.fetchRemove(new_id).?;
+            self.nodes_to_ids.put(brand_new_node, id);
+            self.ids_to_nodes.put(id, brand_new_node);
+        }
+        self.forest.swap_remove(id);
+    }
+
 };
 
 //#endregion node
