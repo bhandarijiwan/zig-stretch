@@ -1040,6 +1040,7 @@ pub const Forest = struct {
     }
 
     pub fn compute_layout(self: *Self, node: NodeId, size: Size(Number)) !void {
+        std.log.info("compute_layout\n", .{});
         try self.compute(node, size);
     }
 
@@ -1071,7 +1072,6 @@ pub const Forest = struct {
                 }
             }
         }
-        std.debug.print("\n\n\n parent_size = {any} \n\n\n", .{parent_size});
         const dir = self.nodes.items[node].style.flex_direction;
         const is_row = dir.is_row();
         const is_column = dir.is_column();
@@ -1365,7 +1365,7 @@ test "Forest.compute_layout" {
         //child_vec.appendAssumeCapacity(leaf_node);
         //_ = try forest.new_node(Style.default(), child_vec);
         //_ = Size(Number){ .width = Number{ .Defined = 100.0 }, .height = Number{ .Defined = 100.0 } };
-        
+
         //forest.compute_layout(root_node, parent_size) catch {};
     }
 }
@@ -1404,9 +1404,7 @@ var INSTANCE_ALLOCATOR: IdAllocator = IdAllocator.new();
 
 pub const Node = struct { instance: Id, local: Id };
 
-pub const Error = error {
-    InvalidNode
-};
+pub const Error = error{InvalidNode};
 
 pub const Stretch = struct {
     const Self = @This();
@@ -1439,14 +1437,7 @@ pub const Stretch = struct {
     }
 
     pub fn with_capacity(allocator: Allocator, capacity: u32) Allocator.Error!Self {
-        return Self{
-            .id = INSTANCE_ALLOCATOR.allocate(),
-            .nodes = IdAllocator.new(),
-            .nodes_to_ids = try new_nodes_to_id_map_with_capacity(allocator, capacity),
-            .ids_to_nodes = try new_ids_to_nodes_map_with_capacity(allocator, capacity),
-            .forest = try Forest.with_capacity(allocator, capacity),
-            .allocator = allocator
-        };
+        return Self{ .id = INSTANCE_ALLOCATOR.allocate(), .nodes = IdAllocator.new(), .nodes_to_ids = try new_nodes_to_id_map_with_capacity(allocator, capacity), .ids_to_nodes = try new_ids_to_nodes_map_with_capacity(allocator, capacity), .forest = try Forest.with_capacity(allocator, capacity), .allocator = allocator };
     }
 
     fn allocate_node(self: *Self) Node {
@@ -1469,7 +1460,7 @@ pub const Stretch = struct {
     }
 
     fn find_node(self: *Self, node: Node) !NodeId {
-        if (self.nodes_to_ids.get(node)) | id | {
+        if (self.nodes_to_ids.get(node)) |id| {
             return id;
         } else {
             return Error.InvalidNode;
@@ -1479,7 +1470,7 @@ pub const Stretch = struct {
     pub fn new_node(self: *Self, node_style: Style, children_nodes: []Node) !Node {
         const node = self.allocate_node();
         var children_vec = ChildrenVec(NodeId).init(self.allocator);
-        for(children_nodes) | *child | {
+        for (children_nodes) |*child| {
             const node_id = try self.find_node(child.*);
             try children_vec.append(node_id);
         }
@@ -1502,7 +1493,7 @@ pub const Stretch = struct {
         const id = self.find_node(node) catch return;
         _ = self.nodes_to_ids.removeByPtr(&node);
         _ = self.ids_to_nodes.removeByPtr(&id);
-        if (self.forest.swap_remove(id)) | new_id | {
+        if (self.forest.swap_remove(id)) |new_id| {
             const brand_new_node = self.ids_to_nodes.fetchRemove(new_id).?;
             self.nodes_to_ids.put(brand_new_node, id);
             self.ids_to_nodes.put(id, brand_new_node);
@@ -1525,12 +1516,12 @@ pub const Stretch = struct {
     pub fn set_children(self: *Self, node: Node, children_nodes: []Node) !void {
         const node_id = try self.find_node(node);
         var children_id = ChildrenVec(NodeId).init(self.allocator);
-        for(children_nodes) | *child | {
-           const id = try self.find_node(child.*);
-           try children_id.append(id);
+        for (children_nodes) |*child| {
+            const id = try self.find_node(child.*);
+            try children_id.append(id);
         }
         // Remove node as parent from all its current children.
-        for(self.forest.children.items[node_id].items) | *child | {
+        for (self.forest.children.items[node_id].items) |*child| {
             try self.forest.parents.items[child.*].append(node_id);
         }
         self.forest.children.items[node_id] = children_id;
@@ -1562,9 +1553,9 @@ pub const Stretch = struct {
     }
 
     pub fn children(self: *Self, node: Node) !Vec(Node) {
-        const id  = try self.find_node(node);
+        const id = try self.find_node(node);
         const child_nodes = Vec(Node).init(self.allocator);
-        for(self.forest.children.items[id].items) | *child | {
+        for (self.forest.children.items[id].items) |*child| {
             try child_nodes.append(self.ids_to_nodes.get(child.*).?);
         }
         return child_nodes;
@@ -1580,13 +1571,13 @@ pub const Stretch = struct {
         return self.forest.children.items[id].items.len;
     }
 
-    pub fn set_style(self: *Self,  node: Node, styl: Style) !void {
-        const id  = try self.find_node(node);
+    pub fn set_style(self: *Self, node: Node, styl: Style) !void {
+        const id = try self.find_node(node);
         self.forest.nodes.items[id].style = styl;
         self.forest.mark_dirty(id);
     }
 
-    pub fn style(self: *Self,  node: Node) !*Style {
+    pub fn style(self: *Self, node: Node) !*Style {
         const id = try self.find_node(node);
         return &self.forest.nodes.items[id].style;
     }
@@ -1607,6 +1598,7 @@ pub const Stretch = struct {
     }
 
     pub fn compute_layout(self: *Self, node: Node, size: Size(Number)) !void {
+        std.log.info("id={any}\n", .{size});
         const id = try self.find_node(node);
         try self.forest.compute_layout(id, size);
     }
@@ -1617,7 +1609,6 @@ pub const Stretch = struct {
         self.ids_to_nodes.deinit();
         INSTANCE_ALLOCATOR.free(&[_]Id{self.id});
     }
-
 };
 
 //#endregion node
@@ -1625,22 +1616,17 @@ pub const Stretch = struct {
 //#region tests/measure
 
 fn testMeasureFn(s: Size(Number)) Size(f32) {
-    return Size(f32) {
-        .width = s.width.or_else_f32(100.0),
-        .height = s.height.or_else_f32(100.0)
-    };
+    return Size(f32){ .width = s.width.or_else_f32(100.0), .height = s.height.or_else_f32(100.0) };
 }
 
 test "measure_root" {
+    std.debug.print("\n Measure Root\n", .{});
     var stretch = try Stretch.new(std.testing.allocator);
-    const node = try stretch.new_leaf(
-        Style.default(),
-        MeasureFunc {
-            .Raw = testMeasureFn
-        }
-    );
+    const node = try stretch.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFn });
+    std.debug.print(" node = {} \n", .{node});
     try stretch.compute_layout(node, UndefinedSize());
     const layout = try stretch.layout(node);
+    std.debug.print("layout = {} \n", .{layout});
     try std.testing.expect(layout.size.width == 100.0);
     try std.testing.expect(layout.size.height == 100.0);
     defer stretch.deinit();
