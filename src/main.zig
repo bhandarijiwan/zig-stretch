@@ -1458,7 +1458,7 @@ pub const Stretch = struct {
 
     fn add_node(self: *Self, node: Node, id: NodeId) !void {
         _ = try self.nodes_to_ids.put(node, id);
-        _ = try self.ids_to_nodes.insert(id, node);
+        _ = try self.ids_to_nodes.put(id, node);
     }
 
     pub fn new_leaf(self: *Self, leaf_style: Style, measure: MeasureFunc) !Node {
@@ -1623,8 +1623,26 @@ pub const Stretch = struct {
 //#endregion node
 
 //#region tests/measure
+
+fn testMeasureFn(s: Size(Number)) Size(f32) {
+    return Size(f32) {
+        .width = s.width.or_else_f32(100.0),
+        .height = s.height.or_else_f32(100.0)
+    };
+}
+
 test "measure_root" {
     var stretch = try Stretch.new(std.testing.allocator);
+    const node = try stretch.new_leaf(
+        Style.default(),
+        MeasureFunc {
+            .Raw = testMeasureFn
+        }
+    );
+    try stretch.compute_layout(node, UndefinedSize());
+    const layout = try stretch.layout(node);
+    try std.testing.expect(layout.size.width == 100.0);
+    try std.testing.expect(layout.size.height == 100.0);
     defer stretch.deinit();
 }
 //#endregion
