@@ -1459,9 +1459,9 @@ pub const Stretch = struct {
         _ = try self.ids_to_nodes.insert(id, node);
     }
 
-    pub fn new_leaf(self: *Self, style: Style, measure: MeasureFunc) !Node {
+    pub fn new_leaf(self: *Self, leaf_style: Style, measure: MeasureFunc) !Node {
         const node = self.allocate_node();
-        const id = try self.forest.new_leaf(style, measure);
+        const id = try self.forest.new_leaf(leaf_style, measure);
         try self.add_node(node, id);
         return node;
     }
@@ -1474,14 +1474,14 @@ pub const Stretch = struct {
         }
     }
 
-    pub fn new_node(self: *Self, style: Style, children: []Node) !Node {
+    pub fn new_node(self: *Self, node_style: Style, children_nodes: []Node) !Node {
         const node = self.allocate_node();
         var children_vec = ChildrenVec(NodeId).init(self.allocator);
-        for(children) | *child | {
+        for(children_nodes) | *child | {
             const node_id = try self.find_node(child.*);
             try children_vec.append(node_id);
         }
-        const id = self.forest.new_node(style, children_vec);
+        const id = self.forest.new_node(node_style, children_vec);
         self.add_node(node, id);
         return node;
     }
@@ -1520,10 +1520,10 @@ pub const Stretch = struct {
         try self.forest.add_child(node_id, child_id);
     }
 
-    pub fn set_children(self: *Self, node: Node, children: []Node) !void {
+    pub fn set_children(self: *Self, node: Node, children_nodes: []Node) !void {
         const node_id = try self.find_node(node);
         var children_id = ChildrenVec(NodeId).init(self.allocator);
-        for(children) | *child | {
+        for(children_nodes) | *child | {
            const id = try self.find_node(child.*);
            try children_id.append(id);
         }
@@ -1558,6 +1558,64 @@ pub const Stretch = struct {
         self.forest.mark_dirty(node_id);
         return self.ids_to_nodes.get(old_child).?;
     }
+
+    pub fn children(self: *Self, node: Node) !Vec(Node) {
+        const id  = try self.find_node(node);
+        const child_nodes = Vec(Node).init(self.allocator);
+        for(self.forest.children.items[id].items) | *child | {
+            try child_nodes.append(self.ids_to_nodes.get(child.*).?);
+        }
+        return child_nodes;
+    }
+
+    pub fn child_at_index(self: *Self, node: Node, index: usize) !Node {
+        const id = try self.find_node(node);
+        return self.ids_to_nodes.get(self.forest.children.items[id].items[index]).?;
+    }
+
+    pub fn child_count(self: *Self, node: Node) !usize {
+        const id = try self.find_node(node);
+        return self.forest.children.items[id].items.len;
+    }
+
+    pub fn set_style(self: *Self,  node: Node, styl: Style) !void {
+        const id  = try self.find_node(node);
+        self.forest.nodes.items[id].style = styl;
+        self.forest.mark_dirty(id);
+    }
+
+    pub fn style(self: *Self,  node: Node) !*Style {
+        const id = try self.find_node(node);
+        return &self.forest.nodes.items[id].style;
+    }
+
+    pub fn layout(self: *Self, node: Node) !*Layout {
+        const id = try self.find_node(node);
+        return &self.forest.nodes.items[id].layout;
+    }
+
+    pub fn mark_dirty(self: *Self, node: Node) !void {
+        const id = try self.find_node(node);
+        self.forest.mark_dirty(id);
+    }
+
+    pub fn dir(self: *Self, node: Node) !bool {
+        const id = try self.find_node(node);
+        return self.forest.nodes.items[id].is_dirty;
+    }
+
+    pub fn compute_layout(self: *Self, node: Node, size: Size(Number)) !void {
+        const id = try self.find_node(node);
+        try self.forest.compute_layout(id, size);
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.forest.deinit();
+        self.nodes_to_ids.deinit();
+        self.ids_to_nodes.deinit();
+        INSTANCE_ALLOCATOR.free(&[_]Id{self.id});
+    }
+
 };
 
 //#endregion node
