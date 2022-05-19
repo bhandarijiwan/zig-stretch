@@ -1623,7 +1623,6 @@ test "measure_root" {
     std.debug.print("\n Measure Root\n", .{});
     var stretch = try Stretch.new(std.testing.allocator);
     const node = try stretch.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFn });
-    std.debug.print(" node = {} \n", .{node});
     try stretch.compute_layout(node, UndefinedSize());
     const layout = try stretch.layout(node);
     std.debug.print("layout = {} \n", .{layout});
