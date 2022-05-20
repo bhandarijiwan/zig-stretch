@@ -1491,8 +1491,8 @@ pub const Stretch = struct {
             const node_id = try self.find_node(child.*);
             try children_vec.append(node_id);
         }
-        const id = self.forest.new_node(node_style, children_vec);
-        self.add_node(node, id);
+        const id = try self.forest.new_node(node_style, children_vec);
+        try self.add_node(node, id);
         return node;
     }
 
@@ -1647,5 +1647,15 @@ test "measure_root" {
     try std.testing.expect(layout.size.width == 100.0);
     try std.testing.expect(layout.size.height == 100.0);
     defer stretch.deinit();
+}
+
+test "measure_child" {
+    std.debug.print("\n  measure child\n", .{});
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+    const child = try stretch.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFn });
+    const node = try stretch.new_node(Style.default(), &[_]Node{ child });
+    try stretch.compute_layout(node, UndefinedSize());
+    std.debug.print(" node = {} \n", .{ node });
 }
 //#endregion
