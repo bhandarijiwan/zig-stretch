@@ -1047,9 +1047,26 @@ pub const Forest = struct {
     pub fn compute(self: *Self, root: NodeId, size: Size(Number)) !void {
         const style = self.nodes.items[root].style;
         const has_root_min_max = style.min_size.width.is_defined() or style.min_size.height.is_defined() or style.max_size.width.is_defined() or style.max_size.height.is_defined();
-        if (has_root_min_max) {} else {
-            _ = try self.compute_internal(root, style.size.resolve(size), size, true);
+        var result: ComputeResult = undefined;
+        if (has_root_min_max) {
+            const first_pass = try self.compute_internal(root, style.size.resolve(size), size, false);
+            const next_pass_width = maybe_min_f32_number(
+                maybe_max_f32_number(first_pass.size.width, style.min_size.width.resolve(size.width)),
+                style.max_size.width.resolve(size.width)
+            );
+            const next_pass_height = maybe_min_f32_number(
+                maybe_max_f32_number(first_pass.size.height, style.min_size.height.resolve(size.height)),
+                style.max_size.height.resolve(size.height)
+            );
+            result = try self.compute_internal(root, Size(Number){ .width = Number.from(next_pass_width), .height = Number.from(next_pass_height) }, size, true);
+        } else {
+            result = try self.compute_internal(root, style.size.resolve(size), size, true);
         }
+        self.nodes.items[root].layout = Layout{
+            .order = @as(u32, 0),
+            .size = result.size,
+            .location = ZeroPoint(),
+        };
     }
 
     fn compute_internal(self: *Self, node: NodeId, node_size: Size(Number), parent_size: Size(Number), perform_layout: bool) Allocator.Error!ComputeResult {
@@ -1601,6 +1618,7 @@ pub const Stretch = struct {
         std.log.info("id={any}\n", .{size});
         const id = try self.find_node(node);
         try self.forest.compute_layout(id, size);
+        std.debug.print("\nforest node = {}\n", .{self.forest.nodes.items[0].layout_cache.?.result});
     }
 
     pub fn deinit(self: *Self) void {
