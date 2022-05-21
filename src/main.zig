@@ -668,7 +668,7 @@ pub const Style = struct {
         }
     }
 
-    pub fn min_margin_end(self: Self, direction: FlexDirection) Dimension {
+    pub fn main_margin_end(self: Self, direction: FlexDirection) Dimension {
         if (direction.is_row()) {
             return self.margin.end;
         } else {
@@ -1086,7 +1086,7 @@ pub const Forest = struct {
         const dir = self.nodes.items[node].style.flex_direction;
         const is_row = dir.is_row();
         const is_column = dir.is_column();
-        //const is_wrap_reverse = self.nodes.items[node].style.flex_wrap == FlexWrap.WrapReverse;
+        const is_wrap_reverse = self.nodes.items[node].style.flex_wrap == FlexWrap.WrapReverse;
         const widthMapper = &RectMapper(Dimension, f32){ .parent_size = parent_size.width, .default_value = 0.0 };
         const margin = self.nodes.items[node].style.margin.map(f32, widthMapper);
         const padding = self.nodes.items[node].style.padding.map(f32, widthMapper);
@@ -1099,8 +1099,8 @@ pub const Forest = struct {
             .height = node_size.height.sub_f32(padding_border.vertical()),
         };
 
-        //var container_size = ZeroSize();
-        //var inner_container_size = ZeroSize();
+        var container_size = ZeroSize();
+        var inner_container_size = ZeroSize();
 
         // if this a leaf node we can skip a lot this function in some cases
         if (self.children.items[node].items.len == 0) {
@@ -1316,7 +1316,7 @@ pub const Forest = struct {
                 use_flex_factor += child.hypothetical_outer_size.main(dir);
             }
             const growing = use_flex_factor < node_inner_size.main(dir).or_else_f32(0.0);
-            _ = !growing;
+            const shrinking = !growing;
 
             // 2. Size inflexible items. Freeze, setting its target main size to its hypothetical main size
             //    - Any item that has a flex factor of zero
@@ -1325,6 +1325,11 @@ pub const Forest = struct {
             //    - If using the flex shrink factor: any item that has a flex base size
             //      smaller than its hypothetical main size
 
+            // 3. Calculate initial free space. Sum the outer sizes of all items on the line,
+            //    and subtract this from the flex container’s inner main size. For frozen items,
+            //    use their outer target main size; for other items, use their outer flex base size.
+
+            var used_space: f32 = 0.0;
             for (line.items) |*child| {
                 //std.debug.print(" child.size.width = {s} child.min_size.width = {s} \n ", .{ @typeName(@TypeOf(child.size)), @typeName(@TypeOf(child.min_size.width))});
                 if (node_inner_size.main(dir).is_undefined() and is_row) {
@@ -1352,11 +1357,631 @@ pub const Forest = struct {
                 // TODO this should really only be set inside the if-statement below but
                 // that causes the target_main_size to never be set for some items
                 child.outer_target_size.set_main(dir, child.target_size.main(dir) + child.margin.main(dir));
+                const child_style = &self.nodes.items[child.node].style;
+
+                // zig fmt: off
+                used_space += child.margin.main(dir);
+                if (
+                    (child_style.flex_grow == 0.0 and child_style.flex_shrink == 0.0) or
+                    (growing and child.flex_basis > child.hypothetical_inner_size.main(dir)) or
+                    (shrinking and child.flex_basis < child.hypothetical_inner_size.main(dir))
+                ) {
+                    child.frozen = true;
+                    used_space += child.target_size.main(dir);
+                } else {
+                    used_space += child.flex_basis;
+                }
+            }
+            // zig fmt: on
+
+            const initial_free_space = node_inner_size.main(dir).sub_f32(used_space).or_else_f32(0.0);
+
+            // 4. Loop
+
+            while (true) {
+                // a. Check for flexible items. If all the flex items on the line are frozen,
+                //    free space has been distributed; exit this loop.
+                for (line.items) |*child_line_item| {
+                    if (!child_line_item.frozen) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+                // b. Calculate the remaining free space as for initial free space, above.
+                //    If the sum of the unfrozen flex items’ flex factors is less than one,
+                //    multiply the initial free space by this sum. If the magnitude of this
+                //    value is less than the magnitude of the remaining free space, use this
+                //    as the remaining free space.
+                used_space = 0.0;
+                for (line.items) |*child_line_item| {
+                    used_space += child_line_item.margin.main(dir) + if (child_line_item.frozen) child_line_item.target_size.main(dir) else child_line_item.flex_basis;
+                }
+                var unfrozen = Vec(*FlexItem).init(self.allocator);
+                for (line.items) |*child_line_item| {
+                    if (!child_line_item.frozen) {
+                        try unfrozen.append(child_line_item);
+                    }
+                }
+                var sum_flex_grow: f32 = 0.0;
+                var sum_flex_shrink: f32 = 0.0;
+                for (unfrozen.items) |unfrozen_child| {
+                    const unfrozen_child_style = &self.nodes.items[unfrozen_child.node].style;
+                    sum_flex_grow += unfrozen_child_style.flex_grow;
+                    sum_flex_shrink += unfrozen_child_style.flex_shrink;
+                }
+                var free_space: f32 = 0.0;
+                if (growing and sum_flex_grow < 1.0) {
+                    free_space = maybe_min_f32_number(initial_free_space * sum_flex_grow, node_inner_size.main(dir).sub_f32(used_space));
+                } else if (shrinking and sum_flex_shrink < 1.0) {
+                    free_space = maybe_max_f32_number(initial_free_space * sum_flex_shrink, node_inner_size.main(dir).sub_f32(used_space));
+                } else {
+                    free_space = node_inner_size.main(dir).sub_f32(used_space).or_else_f32(0.0);
+                }
+
+                // c. Distribute free space proportional to the flex factors.
+                //    - If the remaining free space is zero
+                //        Do Nothing
+                //    - If using the flex grow factor
+                //        Find the ratio of the item’s flex grow factor to the sum of the
+                //        flex grow factors of all unfrozen items on the line. Set the item’s
+                //        target main size to its flex base size plus a fraction of the remaining
+                //        free space proportional to the ratio.
+                //    - If using the flex shrink factor
+                //        For every unfrozen item on the line, multiply its flex shrink factor by
+                //        its inner flex base size, and note this as its scaled flex shrink factor.
+                //        Find the ratio of the item’s scaled flex shrink factor to the sum of the
+                //        scaled flex shrink factors of all unfrozen items on the line. Set the item’s
+                //        target main size to its flex base size minus a fraction of the absolute value
+                //        of the remaining free space proportional to the ratio. Note this may result
+                //        in a negative inner main size; it will be corrected in the next step.
+                //    - Otherwise
+                //        Do Nothing
+
+                if (std.math.isNormal(free_space)) {
+                    if (growing and sum_flex_grow > 0.0) {
+                        for (unfrozen.items) |unfrozen_child| {
+                            unfrozen_child.target_size.set_main(dir, unfrozen_child.flex_basis + (free_space * (self.nodes.items[unfrozen_child.node].style.flex_grow / sum_flex_grow)));
+                        }
+                    } else if (shrinking and sum_flex_shrink > 0.0) {
+                        var sum_scaled_shrink_factor: f32 = 0.0;
+                        for (unfrozen.items) |unfrozen_child| {
+                            sum_scaled_shrink_factor += unfrozen_child.inner_flex_basis * self.nodes.items[unfrozen_child.node].style.flex_shrink;
+                        }
+                        if (sum_scaled_shrink_factor > 0.0) {
+                            for (unfrozen.items) |unfrozen_child| {
+                                const scaled_shrink_factor = unfrozen_child.inner_flex_basis * self.nodes.items[unfrozen_child.node].style.flex_shrink;
+                                unfrozen_child.target_size.set_main(dir, unfrozen_child.flex_basis + free_space * (scaled_shrink_factor / sum_scaled_shrink_factor));
+                            }
+                        }
+                    }
+                }
+
+                // d. Fix min/max violations. Clamp each non-frozen item’s target main size by its
+                //    used min and max main sizes and floor its content-box size at zero. If the
+                //    item’s target main size was made smaller by this, it’s a max violation.
+                //    If the item’s target main size was made larger by this, it’s a min violation.
+
+                var total_violation: f32 = 0.0;
+                for (unfrozen.items) |unfrozen_child| {
+                    // TODO - not really spec abiding but needs to be done somewhere. probably somewhere else though.
+                    // The following logic was developed not from the spec but by trail and error looking into how
+                    // webkit handled various scenarios. Can probably be solved better by passing in
+                    // min-content max-content constraints from the top. Need to figure out correct thing to do here as
+                    // just piling on more conditionals.
+
+                    var unfrozen_min_main: Number = undefined;
+                    if (is_row and self.nodes.items[unfrozen_child.node].measure == null) {
+                        const unfrozen_child_layout = try self.compute_internal(unfrozen_child.node, UndefinedSize(), available_space, false);
+                        unfrozen_min_main = Number.from(maybe_max_f32_number(maybe_min_f32_number(unfrozen_child_layout.size.width, unfrozen_child.size.width), unfrozen_child.min_size.width));
+                    } else {
+                        unfrozen_min_main = unfrozen_child.min_size.main(dir);
+                    }
+
+                    const unfrozen_max_main = unfrozen_child.max_size.main(dir);
+                    const clamped = std.math.max(0.0, maybe_max_f32_number(maybe_min_f32_number(unfrozen_child.target_size.main(dir), unfrozen_max_main), unfrozen_min_main));
+                    const unfrozen_child_violation = clamped - unfrozen_child.target_size.main(dir);
+                    unfrozen_child.violation = unfrozen_child_violation;
+                    unfrozen_child.target_size.set_main(dir, clamped);
+                    unfrozen_child.outer_target_size.set_main(dir, unfrozen_child.target_size.main(dir) + unfrozen_child.margin.main(dir));
+                    total_violation += unfrozen_child_violation;
+                }
+                // e. Freeze over-flexed items. The total violation is the sum of the adjustments
+                //    from the previous step ∑(clamped size - unclamped size). If the total violation is:
+                //    - Zero
+                //        Freeze all items.
+                //    - Positive
+                //        Freeze all the items with min violations.
+                //    - Negative
+                //        Freeze all the items with max violations.
+
+                for (unfrozen.items) |unfrozen_child| {
+                    if (total_violation > 0.0) {
+                        unfrozen_child.frozen = unfrozen_child.violation > 0.0;
+                    } else if (total_violation < 0.0) {
+                        unfrozen_child.frozen = unfrozen_child.violation < 0.0;
+                    } else {
+                        unfrozen_child.frozen = true;
+                    }
+                }
+                // f. Return to the start of this loop.
             }
         }
 
-        std.debug.print(" flex_lines = {} \n", .{flex_lines});
+        // Not part of the spec from what i can see but seems correct
+        container_size.set_main(dir, node_size.main(dir).or_else_f32(blk: {
+            var longest_line: f32 = 0.0;
+            for (flex_lines.items) |*line| {
+                var line_length: f32 = 0.0;
+                for (line.items) |*item| {
+                    line_length += item.outer_target_size.main(dir);
+                }
+                longest_line = std.math.max(longest_line, line_length);
+            }
+            const size = longest_line + padding_border.main(dir);
+            break :blk switch (available_space.main(dir)) {
+                .Defined => |val| if (flex_lines.items.len > 1 and size < val) val else size,
+                else => size,
+            };
+        }));
+        inner_container_size.set_main(dir, container_size.main(dir) - padding_border.main(dir));
+
+        // 9.4. Cross Size Determination
+
+        // 7. Determine the hypothetical cross size of each item by performing layout with the
+        //    used main size and the available space, treating auto as fit-content.
+
+        for (flex_lines.items) |*line| {
+            for (line.items) |*child| {
+                const child_cross = child.size.cross(dir).maybe_max(child.min_size.cross(dir)).maybe_min(child.max_size.cross(dir));
+                // zig fmt: off
+                const child_computed_layout = try self.compute_internal(
+                    child.node,
+                    Size(Number) {
+                        .width = if (is_row) Number.from(child.target_size.width) else child_cross,
+                        .height = if (is_row) child_cross else Number.from(child.target_size.height)
+                    },
+                    Size(Number) {
+                        .width = if (is_row) Number.from(container_size.main(dir)) else available_space.width,
+                        .height = if (is_row) available_space.height else Number.from(container_size.main(dir))
+                    },
+                    false
+                );
+                child.hypothetical_inner_size.set_cross(
+                    dir,
+                    maybe_min_f32_number(
+                        maybe_max_f32_number(
+                            child_computed_layout.size.cross(dir),
+                            child.min_size.cross(dir),
+                        ),
+                        child.max_size.cross(dir)
+                    )
+                );
+                child.hypothetical_outer_size.set_cross(dir, child.hypothetical_inner_size.cross(dir) + child.margin.cross(dir));
+                // zig fmt: on
+            }
+        }
+
+        if (has_baseline_child) {
+            for (flex_lines.items) |*line| {
+                for (line.items) |*child| {
+                    // zig fmt: off
+                    const result = try self.compute_internal(
+                        child.node,
+                        Size(Number) {
+                            .width = if (is_row) Number.from(child.target_size.width) else Number.from(child.hypothetical_inner_size.width),
+                            .height = if (is_row) Number.from(child.hypothetical_inner_size.height) else Number.from(child.target_size.height)
+                        },
+                        Size(Number) {
+                            .width = if (is_row) Number.from(container_size.width) else node_size.width,
+                            .height = if (is_row) node_size.height else Number.from(container_size.height)
+                        },
+                        true
+                    );
+                    const order = for(self.children.items[node].items) | n, idx | {
+                        if (n == child.node) {
+                            break idx;
+                        }
+                    } else { unreachable; };
+
+                    child.baseline = calc_baseline(self, child.node, &Layout {
+                        .order = @truncate(u32, order),
+                        .size = result.size,
+                        .location = ZeroPoint(),
+                    });
+                    // zig fmt: on
+                }
+            }
+        }
+
+        // 8. Calculate the cross size of each flex line.
+        //    If the flex container is single-line and has a definite cross size, the cross size
+        //    of the flex line is the flex container’s inner cross size. Otherwise, for each flex line:
+        //
+        //    If the flex container is single-line, then clamp the line’s cross-size to be within
+        //    the container’s computed min and max cross sizes. Note that if CSS 2.1’s definition
+        //    of min/max-width/height applied more generally, this behavior would fall out automatically.
+
+        if (flex_lines.items.len == 1 and node_size.cross(dir).is_defined()) {
+            flex_lines.items[0].cross_size = (node_size.cross(dir).sub_f32(padding_border.cross(dir))).or_else_f32(0.0);
+        } else {
+            for (flex_lines.items) |*line| {
+                //    1. Collect all the flex items whose inline-axis is parallel to the main-axis, whose
+                //       align-self is baseline, and whose cross-axis margins are both non-auto. Find the
+                //       largest of the distances between each item’s baseline and its hypothetical outer
+                //       cross-start edge, and the largest of the distances between each item’s baseline
+                //       and its hypothetical outer cross-end edge, and sum these two values.
+
+                //    2. Among all the items not collected by the previous step, find the largest
+                //       outer hypothetical cross size.
+
+                //    3. The used cross-size of the flex line is the largest of the numbers found in the
+                //       previous two steps and zero.
+                var max_baseline: f32 = 0.0;
+                for (line.items) |*child| {
+                    max_baseline = std.math.max(max_baseline, child.baseline);
+                }
+                var line_cross_size: f32 = 0.0;
+                for (line.items) |*child| {
+                    const child_style = &self.nodes.items[child.node].style;
+                    // zig fmt: off
+                    if (
+                        child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Baseline and
+                        child_style.cross_margin_start(dir) != Dimension.Auto and
+                        child_style.cross_margin_end(dir) != Dimension.Auto and
+                        child_style.cross_size(dir) == Dimension.Auto
+                    )  {
+                        line_cross_size = std.math.max(
+                            line_cross_size,
+                            max_baseline - child.baseline + child.hypothetical_outer_size.cross(dir)
+                        );
+                    } else {
+                        line_cross_size = std.math.max(
+                            line_cross_size,
+                            child.hypothetical_outer_size.cross(dir)
+                        );
+                    }
+                    // zig fmt: on
+                }
+                line.cross_size = line_cross_size;
+            }
+        }
+
+        // 9. Handle 'align-content: stretch'. If the flex container has a definite cross size,
+        //    align-content is stretch, and the sum of the flex lines' cross sizes is less than
+        //    the flex container’s inner cross size, increase the cross size of each flex line
+        //    by equal amounts such that the sum of their cross sizes exactly equals the
+        //    flex container’s inner cross size.
+
+        if (self.nodes.items[node].style.align_content == AlignContent.Stretch and node_size.cross(dir).is_defined()) {
+            const total_cross: f32 = blk: {
+                var s: f32 = 0;
+                for (flex_lines.items) |*line| {
+                    s += line.cross_size;
+                }
+                break :blk s;
+            };
+            const inner_cross = (node_size.cross(dir).sub_f32(padding_border.cross(dir))).or_else_f32(0.0);
+            if (total_cross < inner_cross) {
+                const remaining = inner_cross - total_cross;
+                const addition = remaining / @intToFloat(f32, flex_lines.items.len);
+                for (flex_lines.items) |*line| {
+                    line.cross_size += addition;
+                }
+            }
+        }
+
+        // 10. Collapse visibility:collapse items. If any flex items have visibility: collapse,
+        //     note the cross size of the line they’re in as the item’s strut size, and restart
+        //     layout from the beginning.
+        //
+        //     In this second layout round, when collecting items into lines, treat the collapsed
+        //     items as having zero main size. For the rest of the algorithm following that step,
+        //     ignore the collapsed items entirely (as if they were display:none) except that after
+        //     calculating the cross size of the lines, if any line’s cross size is less than the
+        //     largest strut size among all the collapsed items in the line, set its cross size to
+        //     that strut size.
+        //
+        //     Skip this step in the second layout round.
+
+        // TODO implement once (if ever) we support visibility:collapse
+
+        // 11. Determine the used cross size of each flex item. If a flex item has align-self: stretch,
+        //     its computed cross size property is auto, and neither of its cross-axis margins are auto,
+        //     the used outer cross size is the used cross size of its flex line, clamped according to
+        //     the item’s used min and max cross sizes. Otherwise, the used cross size is the item’s
+        //     hypothetical cross size.
+        //
+        //     If the flex item has align-self: stretch, redo layout for its contents, treating this
+        //     used size as its definite cross size so that percentage-sized children can be resolved.
+        //
+        //     Note that this step does not affect the main size of the flex item, even if it has an
+        //     intrinsic aspect ratio.
+
+        for (flex_lines.items) |*line| {
+            const line_cross_size = line.cross_size;
+            for (line.items) |*child| {
+                const child_style = &self.nodes.items[child.node].style;
+                var child_cross = child.hypothetical_inner_size.cross(dir);
+                // zig fmt: off
+                if (
+                    child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Stretch and
+                    child_style.cross_margin_start(dir) != Dimension.Auto and
+                    child_style.cross_margin_end(dir) != Dimension.Auto and
+                    child_style.cross_size(dir) == Dimension.Auto
+                ) {
+                    child_cross = maybe_min_f32_number(
+                        maybe_max_f32_number(
+                            line_cross_size - child.margin.cross(dir),
+                            child.min_size.cross(dir)
+                        ),
+                        child.max_size.cross(dir)
+                    );
+                }
+                child.target_size.set_cross(dir, child_cross);
+                child.outer_target_size.set_cross(dir, child_cross + child.margin.cross(dir));
+                // zig fmt: on
+            }
+        }
+        // 9.5. Main-Axis Alignment
+
+        // 12. Distribute any remaining free space. For each flex line:
+        //     1. If the remaining free space is positive and at least one main-axis margin on this
+        //        line is auto, distribute the free space equally among these margins. Otherwise,
+        //        set all auto margins to zero.
+        //     2. Align the items along the main-axis per justify-content.
+
+        for (flex_lines.items) |*line| {
+            var used_space: f32 = 0.0;
+            for (line.items) |*child| {
+                used_space += child.outer_target_size.main(dir);
+            }
+            const free_space = inner_container_size.main(dir) - used_space;
+            var num_auto_margins: u32 = 0;
+            for (line.items) |*child| {
+                const child_style = &self.nodes.items[child.node].style;
+                if (child_style.main_margin_start(dir) == Dimension.Auto) {
+                    num_auto_margins += 1;
+                }
+                if (child_style.main_margin_end(dir) == Dimension.Auto) {
+                    num_auto_margins += 1;
+                }
+            }
+
+            if (free_space > 0.0 and num_auto_margins > 0) {
+                const child_margin = free_space / @intToFloat(f32, num_auto_margins);
+                for (line.items) |*child| {
+                    const child_style = &self.nodes.items[child.node].style;
+                    if (child_style.main_margin_start(dir) == Dimension.Auto) {
+                        if (is_row) {
+                            child.margin.start = child_margin;
+                        } else {
+                            child.margin.top = child_margin;
+                        }
+                    }
+                    if (child_style.main_margin_end(dir) == Dimension.Auto) {
+                        if (is_row) {
+                            child.margin.end = child_margin;
+                        } else {
+                            child.margin.bottom = child_margin;
+                        }
+                    }
+                }
+            } else {
+                const num_items = line.items.len;
+                const layout_reverse = dir.is_reverse();
+                var index_dir: isize = 1;
+                var start_index: isize = 0;
+                if (layout_reverse and line.items.len > 0) {
+                    index_dir = -1;
+                    start_index = @intCast(isize, line.items.len - 1);
+                }
+                var child_index = start_index;
+                const node_justify_content = self.nodes.items[node].style.justify_content;
+                while (child_index >= 0 and child_index < line.items.len) : (child_index += index_dir) {
+                    const is_first = child_index == start_index;
+                    var child = &line.items[@intCast(usize, child_index)];
+                    child.offset_main = switch (node_justify_content) {
+                        .FlexStart => if (layout_reverse and is_first) free_space else 0.0,
+                        .Center => if (is_first) free_space / 2.0 else 0.0,
+                        .FlexEnd => if (is_first and !layout_reverse) free_space else 0.0,
+                        .SpaceBetween => if (is_first) 0.0 else free_space / @intToFloat(f32, (num_items - 1)),
+                        .SpaceAround => if (is_first) (free_space / @intToFloat(f32, num_items)) / 2.0 else free_space / @intToFloat(f32, num_items),
+                        .SpaceEvenly => free_space / @intToFloat(f32, num_items + 1),
+                    };
+                }
+            }
+        }
+
+        // 9.6. Cross-Axis Alignment
+
+        // 13. Resolve cross-axis auto margins. If a flex item has auto cross-axis margins:
+        //     - If its outer cross size (treating those auto margins as zero) is less than the
+        //       cross size of its flex line, distribute the difference in those sizes equally
+        //       to the auto margins.
+        //     - Otherwise, if the block-start or inline-start margin (whichever is in the cross axis)
+        //       is auto, set it to zero. Set the opposite margin so that the outer cross size of the
+        //       item equals the cross size of its flex line.
+
+        for (flex_lines.items) |*line| {
+            const line_cross_size = line.cross_size;
+            var max_baseline: f32 = 0.0;
+            for (line.items) |*child| {
+                max_baseline = std.math.max(max_baseline, child.baseline);
+            }
+
+            for (line.items) |*child| {
+                const free_space = line_cross_size - child.outer_target_size.cross(dir);
+                const child_style = &self.nodes.items[child.node].style;
+                if (child_style.cross_margin_start(dir) == Dimension.Auto and child_style.cross_margin_end(dir) == Dimension.Auto) {
+                    if (is_row) {
+                        child.margin.top = free_space / 2.0;
+                        child.margin.bottom = free_space / 2.0;
+                    } else {
+                        child.margin.start = free_space / 2.0;
+                        child.margin.end = free_space / 2.0;
+                    }
+                } else if (child_style.cross_margin_end(dir) == Dimension.Auto) {
+                    if (is_row) {
+                        child.margin.top = free_space;
+                    } else {
+                        child.margin.start = free_space;
+                    }
+                } else if (child_style.cross_margin_end(dir) == Dimension.Auto) {
+                    if (is_row) {
+                        child.margin.bottom = free_space;
+                    } else {
+                        child.margin.end = free_space;
+                    }
+                } else {
+                    child.offset_cross = switch (child_style.align_self_fn(&self.nodes.items[node].style)) {
+                        .Auto => 0.0, // Should never happen
+                        .FlexStart => if (is_wrap_reverse) free_space else 0.0,
+                        .FlexEnd => if (is_wrap_reverse) free_space else 0.0,
+                        .Center => free_space / 2.0,
+                        .Baseline => if (is_row) max_baseline - child.baseline else if (is_wrap_reverse) free_space else 0.0,
+                        .Stretch => if (is_wrap_reverse) free_space else 0.0,
+                    };
+                }
+            }
+        }
+
+        // 15. Determine the flex container’s used cross size:
+        //     - If the cross size property is a definite size, use that, clamped by the used
+        //       min and max cross sizes of the flex container.
+        //     - Otherwise, use the sum of the flex lines' cross sizes, clamped by the used
+        //       min and max cross sizes of the flex container.
+
+        const total_cross_size: f32 = blk: {
+            var s: f32 = 0.0;
+            for (flex_lines.items) |*line| {
+                s += line.cross_size;
+            }
+            break :blk s;
+        };
+        container_size.set_cross(dir, node_size.cross(dir).or_else_f32(total_cross_size + padding_border.cross(dir)));
+        inner_container_size.set_cross(dir, container_size.cross(dir) - padding_border.cross(dir));
+
+        // We have the container size. If our caller does not care about performing
+        // layout we are done now.
+
+        if (!perform_layout) {
+            var result = ComputeResult{ .size = container_size };
+            self.nodes.items[node].layout_cache = Cache{
+                .node_size = node_size,
+                .parent_size = parent_size,
+                .perform_layout = perform_layout,
+                .result = result.clone(),
+            };
+            return result;
+        }
+        // 16. Align all flex lines per align-content.
+
+        const free_space = inner_container_size.cross(dir) - total_cross_size;
+        const num_lines = flex_lines.items.len;
+        const node_align_content = self.nodes.items[node].style.align_content;
+
+        var index_dir: isize = 1;
+        var start_index: isize = 0;
+        if (is_wrap_reverse and num_lines > 0) {
+            index_dir = -1;
+            start_index = @intCast(isize, num_lines - 1);
+        }
+        var line_index = start_index;
+        while (line_index >= 0 and line_index < num_lines) : (line_index += index_dir) {
+            const is_first = line_index == start_index;
+            var line = &flex_lines.items[@intCast(usize, line_index)];
+            line.offset_cross = switch (node_align_content) {
+                .FlexStart => if (is_first and is_wrap_reverse) free_space else 0.0,
+                .FlexEnd => if (is_first and !is_wrap_reverse) free_space else 0.0,
+                .Center => if (is_first) free_space / 2.0 else 0.0,
+                .SpaceBetween => if (is_first) 0.0 else free_space / @intToFloat(f32, num_lines - 1),
+                .SpaceAround => if (is_first) (free_space / @intToFloat(f32, num_lines)) / 2.0 else free_space / @intToFloat(f32, num_lines),
+                .Stretch => 0.0,
+            };
+        }
+
+        // Do a final layout pass and gather the resulting layouts
+
+        {
+            var total_offset_cross = padding_border.cross_start(dir);
+            var line_index_dir: isize = 1;
+            var line_start_index: isize = 0;
+            if (is_wrap_reverse and num_lines > 0) {
+                line_index_dir = -1;
+                line_start_index = @intCast(isize, num_lines - 1);
+            }
+            line_index = line_start_index;
+            while (line_index >= 0 and line_index < num_lines) : (line_index += line_index_dir) {
+                var line = &flex_lines.items[@intCast(usize, line_index)];
+                var total_offset_main = padding_border.main_start(dir);
+                const line_offset_cross = line.offset_cross;
+
+                var child_index_dir: isize = 1;
+                var child_start_index: isize = 0;
+                const child_count = line.items.len;
+                if (dir.is_reverse() and child_count > 0) {
+                    child_index_dir = -1;
+                    child_start_index = @intCast(isize, child_count - 1);
+                }
+                var child_index = child_start_index;
+                while (child_index >= 0 and child_index < child_count) : (child_index += child_index_dir) {
+                    var child = &line.items[@intCast(usize, child_index)];
+                    // zig fmt: off
+                    const child_result = try self.compute_internal(
+                        child.node, 
+                        Size(Number){
+                            .width = Number.from(child.target_size.width),
+                            .height = Number.from(child.target_size.height),
+                        },
+                        Size(Number){ 
+                            .width = Number.from(container_size.width),
+                            .height = Number.from(container_size.height)
+                        }, 
+                        true
+                    );
+                    const offset_main = total_offset_main
+                        + child.offset_main
+                        + child.margin.main_start(dir)
+                        + (child.position.main_start(dir).or_else_f32(0.0) - child.position.main_end(dir).or_else_f32(0.0));
+                    const offset_cross = total_offset_cross
+                        + child.offset_cross
+                        + line_offset_cross
+                        + child.margin.cross_start(dir)
+                        + (child.position.cross_start(dir).or_else_f32(0.0) - child.position.cross_end(dir).or_else_f32(0.0));
+
+                    const order = for(self.children.items[node].items) | n, idx | {
+                        if (n == child.node) {
+                            break idx;
+                        }
+                    } else { unreachable; };
+
+                    self.nodes.items[child.node].layout = Layout {
+                        .order = @truncate(u32, order),
+                        .size = child_result.size,
+                        .location = Point(f32) {
+                            .x = if (is_row) offset_main else offset_cross,
+                            .y = if (is_column) offset_main else offset_cross,
+                        }
+                    };
+                    // zig fmt: on
+                    total_offset_main += child.offset_main + child.margin.main(dir) + child_result.size.main(dir);
+                }
+                total_offset_cross += line_offset_cross + line.cross_size;
+            }
+        }
+
+        std.debug.print(" inner_container_size = {} \n", .{inner_container_size});
         unreachable;
+    }
+
+    fn calc_baseline(forest: *Forest, node: NodeId, layout: *Layout) f32 {
+        if (forest.children.items[node].items.len == 0) {
+            return layout.size.height;
+        } else {
+            const child = forest.children.items[node].items[0];
+            return calc_baseline(forest, child, &forest.nodes.items[child].layout);
+        }
     }
 
     pub fn deinit(self: *Self) void {
