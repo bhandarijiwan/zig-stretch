@@ -154,7 +154,7 @@ pub fn Size(comptime T: type) type {
             };
         }
 
-        pub fn set_main(self: Self, direction: FlexDirection, value: T) void {
+        pub fn set_main(self: *Self, direction: FlexDirection, value: T) void {
             if (direction.is_row()) {
                 self.width = value;
             } else {
@@ -162,7 +162,7 @@ pub fn Size(comptime T: type) type {
             }
         }
 
-        pub fn set_cross(self: Self, direction: FlexDirection, value: T) void {
+        pub fn set_cross(self: *Self, direction: FlexDirection, value: T) void {
             if (direction.is_row()) {
                 self.height = value;
             } else {
@@ -872,7 +872,7 @@ pub const Forest = struct {
         offset_cross: f32,
     };
 
-    const Flexline = struct {
+    const FlexLine = struct {
         items: []FlexItem,
         cross_size: f32,
         offset_cross: f32,
@@ -1050,14 +1050,8 @@ pub const Forest = struct {
         var result: ComputeResult = undefined;
         if (has_root_min_max) {
             const first_pass = try self.compute_internal(root, style.size.resolve(size), size, false);
-            const next_pass_width = maybe_min_f32_number(
-                maybe_max_f32_number(first_pass.size.width, style.min_size.width.resolve(size.width)),
-                style.max_size.width.resolve(size.width)
-            );
-            const next_pass_height = maybe_min_f32_number(
-                maybe_max_f32_number(first_pass.size.height, style.min_size.height.resolve(size.height)),
-                style.max_size.height.resolve(size.height)
-            );
+            const next_pass_width = maybe_min_f32_number(maybe_max_f32_number(first_pass.size.width, style.min_size.width.resolve(size.width)), style.max_size.width.resolve(size.width));
+            const next_pass_height = maybe_min_f32_number(maybe_max_f32_number(first_pass.size.height, style.min_size.height.resolve(size.height)), style.max_size.height.resolve(size.height));
             result = try self.compute_internal(root, Size(Number){ .width = Number.from(next_pass_width), .height = Number.from(next_pass_height) }, size, true);
         } else {
             result = try self.compute_internal(root, style.size.resolve(size), size, true);
@@ -1243,8 +1237,6 @@ pub const Forest = struct {
                 .width = width.maybe_max(child.min_size.width).maybe_min(child.max_size.width),
                 .height = height.maybe_max(child.min_size.height).maybe_min(child.max_size.height),
             };
-
-            std.debug.print("child_parent_size : {any}, available_space = {any} node_size = {any} node_inner_size = {any} \n", .{ child_parent_size, available_space, node_size, node_inner_size });
             const child_flex_basis_size = try self.compute_internal(child.node, child_parent_size, available_space, false);
             child.flex_basis = maybe_min_f32_number(maybe_max_f32_number(child_flex_basis_size.size.main(dir), child.min_size.main(dir)), child.max_size.main(dir));
         }
@@ -1254,15 +1246,67 @@ pub const Forest = struct {
 
         for (flex_items.items) |*child| {
             child.inner_flex_basis = child.flex_basis - child.padding.main(dir) - child.border.main(dir);
+
             // TODO - not really spec abiding but needs to be done somewhere. probably somewhere else though.
             // The following logic was developed not from the spec but by trail and error looking into how
             // webkit handled various scenarios. Can probably be solved better by passing in
             // min-content max-content constraints from the top
-            const min_main_size = try self.compute_internal(child.node, UndefinedSize(), available_space, false);
-            _ = maybe_min_f32_number(maybe_max_f32_number(min_main_size.size.main(dir), child.min_size.main(dir)), child.size.main(dir));
-        }
 
-        std.debug.print(" available_space = {} flex_items = {} \n", .{ available_space, flex_items });
+            const min_main_size = try self.compute_internal(child.node, UndefinedSize(), available_space, false);
+            const min_main = maybe_min_f32_number(maybe_max_f32_number(min_main_size.size.main(dir), child.min_size.main(dir)), child.size.main(dir));
+            const min_main_num = Number.from(min_main);
+            const hypothetical_inner_size = maybe_min_f32_number(maybe_max_f32_number(child.flex_basis, min_main_num), child.max_size.main(dir));
+            child.hypothetical_inner_size.set_main(dir, hypothetical_inner_size);
+            child.hypothetical_outer_size.set_main(dir, hypothetical_inner_size + child.margin.main(dir));
+        }
+        // 9.3. Main Size Determination
+
+        // 5. Collect flex items into flex lines:
+        //    - If the flex container is single-line, collect all the flex items into
+        //      a single flex line.
+        //    - Otherwise, starting from the first uncollected item, collect consecutive
+        //      items one by one until the first time that the next collected item would
+        //      not fit into the flex container’s inner main size (or until a forced break
+        //      is encountered, see §10 Fragmenting Flex Layout). If the very first
+        //      uncollected item wouldn’t fit, collect just it into the line.
+        //
+        //      For this step, the size of a flex item is its outer hypothetical main size. (Note: This can be negative.)
+        //      Repeat until all flex items have been collected into flex lines
+        //
+        //      Note that the "collect as many" line will collect zero-sized flex items onto
+        //      the end of the previous line even if the last non-zero item exactly "filled up" the line.
+
+        var flex_lines = blk: {
+            var lines = try Vec(FlexLine).initCapacity(self.allocator, @as(usize, 1));
+            if (self.nodes.items[node].style.flex_wrap == FlexWrap.NoWrap) {
+                try lines.append(FlexLine{ .items = flex_items.items, .cross_size = 0.0, .offset_cross = 0.0 });
+            } else {
+                var flex_items_slice = flex_items.items;
+                while(flex_items_slice.len > 0) {
+                    var line_length: f32 = 0.0;
+                    var index = flex_items_slice.len;
+                    for(flex_items_slice) | *child, idx | {
+                        line_length += child.hypothetical_outer_size.main(dir);
+                        const available_space_main = available_space.main(dir);
+                        if (available_space_main == Number.Defined) {
+                            if (line_length > available_space_main.Defined and idx != 0) {
+                                index = idx;
+                                break;
+                            }
+                        }
+                    }
+                    try lines.append(FlexLine {
+                        .items = flex_items_slice[0..index],
+                        .cross_size = 0.0,
+                        .offset_cross = 0.0
+                    });
+                    flex_items_slice = flex_items_slice[index..];
+                }
+            }
+            break :blk lines;
+        };
+
+        std.debug.print(" flex_lines = {} \n", .{flex_lines});
         unreachable;
     }
 
@@ -1653,9 +1697,9 @@ test "measure_child" {
     std.debug.print("\n  measure child\n", .{});
     var stretch = try Stretch.new(std.testing.allocator);
     defer stretch.deinit();
-    const child = try stretch.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFn });
-    const node = try stretch.new_node(Style.default(), &[_]Node{ child });
+    const child = try stretch.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFn });
+    const node = try stretch.new_node(Style.default(), &[_]Node{child});
     try stretch.compute_layout(node, UndefinedSize());
-    std.debug.print(" node = {} \n", .{ node });
+    std.debug.print(" node = {} \n", .{node});
 }
 //#endregion
