@@ -1282,10 +1282,10 @@ pub const Forest = struct {
                 try lines.append(FlexLine{ .items = flex_items.items, .cross_size = 0.0, .offset_cross = 0.0 });
             } else {
                 var flex_items_slice = flex_items.items;
-                while(flex_items_slice.len > 0) {
+                while (flex_items_slice.len > 0) {
                     var line_length: f32 = 0.0;
                     var index = flex_items_slice.len;
-                    for(flex_items_slice) | *child, idx | {
+                    for (flex_items_slice) |*child, idx| {
                         line_length += child.hypothetical_outer_size.main(dir);
                         const available_space_main = available_space.main(dir);
                         if (available_space_main == Number.Defined) {
@@ -1295,16 +1295,65 @@ pub const Forest = struct {
                             }
                         }
                     }
-                    try lines.append(FlexLine {
-                        .items = flex_items_slice[0..index],
-                        .cross_size = 0.0,
-                        .offset_cross = 0.0
-                    });
+                    try lines.append(FlexLine{ .items = flex_items_slice[0..index], .cross_size = 0.0, .offset_cross = 0.0 });
                     flex_items_slice = flex_items_slice[index..];
                 }
             }
             break :blk lines;
         };
+        // 6. Resolve the flexible lengths of all the flex items to find their used main size.
+        //    See §9.7 Resolving Flexible Lengths.
+        //
+        // 9.7. Resolving Flexible Lengths
+        for (flex_lines.items) |*line| {
+            // 1. Determine the used flex factor. Sum the outer hypothetical main sizes of all
+            //    items on the line. If the sum is less than the flex container’s inner main size,
+            //    use the flex grow factor for the rest of this algorithm; otherwise, use the
+            //    flex shrink factor.
+
+            var use_flex_factor: f32 = 0.0;
+            for (line.items) |*child| {
+                use_flex_factor += child.hypothetical_outer_size.main(dir);
+            }
+            const growing = use_flex_factor < node_inner_size.main(dir).or_else_f32(0.0);
+            _ = !growing;
+
+            // 2. Size inflexible items. Freeze, setting its target main size to its hypothetical main size
+            //    - Any item that has a flex factor of zero
+            //    - If using the flex grow factor: any item that has a flex base size
+            //      greater than its hypothetical main size
+            //    - If using the flex shrink factor: any item that has a flex base size
+            //      smaller than its hypothetical main size
+
+            for (line.items) |*child| {
+                //std.debug.print(" child.size.width = {s} child.min_size.width = {s} \n ", .{ @typeName(@TypeOf(child.size)), @typeName(@TypeOf(child.min_size.width))});
+                if (node_inner_size.main(dir).is_undefined() and is_row) {
+                    // zig fmt: off
+                    const child_target = try self.compute_internal(
+                        child.node,
+                        Size(Number){ 
+                            .width = child.size.width.maybe_max(child.min_size.width).maybe_min(child.max_size.width),
+                            .height = child.size.height.maybe_max(child.min_size.height).maybe_min(child.max_size.height) 
+                        },
+                        available_space,
+                        false
+                    );
+                    child.target_size.set_main(
+                        dir,
+                        maybe_min_f32_number(
+                            maybe_max_f32_number(child_target.size.main(dir), child.min_size.main(dir)),
+                            child.max_size.main(dir)
+                        )
+                    );
+                    // zig fmt: on
+                } else {
+                    child.target_size.set_main(dir, child.hypothetical_inner_size.main(dir));
+                }
+                // TODO this should really only be set inside the if-statement below but
+                // that causes the target_main_size to never be set for some items
+                child.outer_target_size.set_main(dir, child.target_size.main(dir) + child.margin.main(dir));
+            }
+        }
 
         std.debug.print(" flex_lines = {} \n", .{flex_lines});
         unreachable;
