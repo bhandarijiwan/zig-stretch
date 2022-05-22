@@ -652,7 +652,7 @@ pub const Style = struct {
         }
     }
 
-    pub fn max_min_size(self: Self, direction: FlexDirection) Dimension {
+    pub fn max_main_size(self: Self, direction: FlexDirection) Dimension {
         if (direction.is_row()) {
             return self.max_size.width;
         } else {
@@ -1973,18 +1973,112 @@ pub const Forest = struct {
 
         // Before returning we perform absolute layout on all absolutely positioned children
         {
-            var order: usize = 0;
-            for(self.children.items[node].items) | *child | {
-                const child_style = self.nodes.items[child.*].style;
+            var order: u32 = 0;
+            for (self.children.items[node].items) |child| {
+                const child_style = &self.nodes.items[child].style;
                 if (child_style.position_type != PositionType.Absolute) {
                     continue;
                 }
                 const container_width = Number.from(container_size.width);
                 const container_height = Number.from(container_size.height);
-                const start  = child_style.position.start.resolve(container_width).add(child_style.margin.start.resolve(container_width));
-                const end  = child_style.position.end.resolve(container_width).add(child_style.margin.end.resolve(container_width));
-                const top  = child_style.position.top.resolve(container_height).add(child_style.margin.top.resolve(container_height));
-                const bottom  = child_style.position.bottom.resolve(container_height).add(child_style.margin.bottom.resolve(container_height));
+                const start = child_style.position.start.resolve(container_width).add(child_style.margin.start.resolve(container_width));
+                const end = child_style.position.end.resolve(container_width).add(child_style.margin.end.resolve(container_width));
+                const top = child_style.position.top.resolve(container_height).add(child_style.margin.top.resolve(container_height));
+                const bottom = child_style.position.bottom.resolve(container_height).add(child_style.margin.bottom.resolve(container_height));
+
+                var start_main = top;
+                var end_main = bottom;
+                var start_cross = start;
+                var end_cross = end;
+                if (is_row) {
+                    start_main = start;
+                    end_main = end;
+                    start_cross = top;
+                    end_cross = bottom;
+                }
+                const fallback_width = if (start.is_defined() and end.is_defined()) container_width.sub(start).sub(end) else Number.default();
+                // zig fmt: off
+                const width = child_style.size
+                    .width
+                    .resolve(container_width)
+                    .maybe_max(child_style.min_size.width.resolve(container_width))
+                    .maybe_min(child_style.max_size.width.resolve(container_width))
+                    .or_else(fallback_width);
+                const fallback_height = if (top.is_defined() and bottom.is_defined()) container_height.sub(top).sub(bottom) else Number.default();
+                const height = child_style.size
+                    .height
+                    .resolve(container_height)
+                    .maybe_max(child_style.min_size.height.resolve(container_height))
+                    .maybe_min(child_style.max_size.height.resolve(container_height))
+                    .or_else(fallback_height);
+
+                const result = try self.compute_internal(
+                    child,
+                    Size(Number) {
+                        .width = width,
+                        .height = height
+                    },
+                    Size(Number) {
+                        .width = container_width,
+                        .height = container_height
+                    },
+                    true
+                );
+                const free_main_space = container_size.main(dir) -  maybe_min_f32_number(
+                    maybe_max_f32_number(
+                        result.size.main(dir),
+                        child_style.min_main_size(dir).resolve(node_inner_size.main(dir))
+                    ),
+                    child_style.max_main_size(dir).resolve(node_inner_size.main(dir))
+                );
+
+                const free_cross_space = container_size.cross(dir) - maybe_max_f32_number(
+                    maybe_max_f32_number(
+                        result.size.cross(dir),
+                        child_style.min_cross_size(dir).resolve(node_inner_size.cross(dir))
+                    ),
+                    child_style.max_cross_size(dir).resolve(node_inner_size.cross(dir))
+                );
+                
+                var offset_main: f32 = 0.0;
+
+                if (start_main.is_defined()) {
+                    offset_main = start_main.or_else_f32(0.0) + border.main_start(dir);
+                } else if (end_main.is_defined()) {
+                    offset_main = free_main_space - end_main.or_else_f32(0.0) - border.main_end(dir);
+                } else {
+                    offset_main = switch(self.nodes.items[node].style.justify_content) {
+                        .SpaceBetween, .FlexStart => padding_border.main_start(dir),
+                        .FlexEnd => free_main_space - padding_border.main_end(dir),
+                        .SpaceEvenly, .SpaceAround, .Center => free_main_space / 2.0
+                    };
+                }
+
+                var offset_cross: f32 = 0.0;
+                if (start_cross.is_defined()) {
+                    offset_cross = start_cross.or_else_f32(0.0) + border.cross_start(dir);
+                } else if (end_cross.is_defined()) {
+                    offset_cross = free_cross_space - end_cross.or_else_f32(0.0) - border.cross_end(dir);
+                } else {
+                    offset_cross = switch(child_style.align_self_fn(&self.nodes.items[node].style)) {
+                        .Auto => 0.0,
+                        .FlexStart => if (is_wrap_reverse) free_cross_space - padding_border.cross_end(dir) else padding_border.cross_start(dir),
+                        .FlexEnd => if (is_wrap_reverse) padding_border.cross_start(dir) else free_cross_space - padding_border.cross_end(dir),
+                        .Center => free_cross_space / 2.0,
+                        .Baseline => free_cross_space / 2.0, // Treat as center for now until we have a baseline support
+                        .Stretch => if (is_wrap_reverse) free_cross_space - padding_border.cross_end(dir) else padding_border.cross_start(dir),
+                    };
+                }
+                self.nodes.items[child].layout = Layout {
+                    .order = order,
+                    .size = result.size,
+                    .location = Point(f32) {
+                        .x = if (is_row) offset_main else offset_cross,
+                        .y = if (is_column) offset_main else offset_cross
+                    }
+                };
+                // zig fmt: on
+
                 order += 1;
             }
         }
