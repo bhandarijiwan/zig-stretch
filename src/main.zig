@@ -2498,14 +2498,18 @@ pub const Stretch = struct {
 
 //#region tests/measure
 
-fn testMeasureFn(s: Size(Number)) Size(f32) {
+fn testMeasureFn_Width_100_Height_100(s: Size(Number)) Size(f32) {
     return Size(f32){ .width = s.width.or_else_f32(100.0), .height = s.height.or_else_f32(100.0) };
+}
+
+fn testMeasureFn_Width_10_Height_50(s: Size(Number)) Size(f32) {
+    return Size(f32){ .width = s.width.or_else_f32(10.0), .height = s.height.or_else_f32(50.0) };
 }
 
 test "measure_root" {
     std.debug.print("\n Measure Root\n", .{});
     var stretch = try Stretch.new(std.testing.allocator);
-    const node = try stretch.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFn });
+    const node = try stretch.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFn_Width_100_Height_100 });
     try stretch.compute_layout(node, UndefinedSize());
     const layout = try stretch.layout(node);
     std.debug.print("layout = {} \n", .{layout});
@@ -2518,7 +2522,7 @@ test "measure_child" {
     std.debug.print("\n  measure child\n", .{});
     var stretch = try Stretch.new(std.testing.allocator);
     defer stretch.deinit();
-    const child = try stretch.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFn });
+    const child = try stretch.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFn_Width_100_Height_100 });
     const node = try stretch.new_node(Style.default(), &[_]Node{child});
     try stretch.compute_layout(node, UndefinedSize());
     const node_layout = stretch.layout(node) catch unreachable;
@@ -2532,7 +2536,7 @@ test "measure_child" {
 test "measure_child_constraint" {
     var stretch = try Stretch.new(std.testing.allocator);
     defer stretch.deinit();
-    const child = try stretch.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFn });
+    const child = try stretch.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFn_Width_100_Height_100 });
     var node_style = Style.default();
     node_style.size.width = Dimension { .Points = 50.0 };
     const node = try stretch.new_node(node_style, &[_]Node {child});
@@ -2548,7 +2552,7 @@ test "measure_child_constraint" {
 test "measure_child_constraint_padding_parent" {
     var stretch = try Stretch.new(std.testing.allocator);
     defer stretch.deinit();
-    const child = try stretch.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFn });
+    const child = try stretch.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFn_Width_100_Height_100 });
     var node_style = Style.default();
     node_style.size.width = Dimension { .Points = 50.0 };
     const padding = Dimension { .Points = 10.0 };
@@ -2574,10 +2578,10 @@ test "measure_child_with_flex_grow" {
     var child0_style = Style.default();
     child0_style.size.width = dim_50_points;
     child0_style.size.height = dim_50_points;
-    const child0 = try stretch.new_leaf(child0_style, MeasureFunc { .Raw = testMeasureFn });
+    const child0 = try stretch.new_leaf(child0_style, MeasureFunc { .Raw = testMeasureFn_Width_100_Height_100 });
     var child1_style = Style.default();
     child1_style.flex_grow = 1.0;
-    const child1 = try stretch.new_leaf(child1_style, MeasureFunc { .Raw = testMeasureFn });
+    const child1 = try stretch.new_leaf(child1_style, MeasureFunc { .Raw = testMeasureFn_Width_10_Height_50 });
     var node_style = Style.default();
     node_style.size.width = dim_100_points;
     const node = try stretch.new_node(node_style, &[_]Node { child0, child1 });
