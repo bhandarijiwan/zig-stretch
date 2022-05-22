@@ -1061,6 +1061,7 @@ pub const Forest = struct {
             .size = result.size,
             .location = ZeroPoint(),
         };
+        round_layout(self.nodes.items, self.children.items, root, 0.0, 0.0);
     }
 
     fn compute_internal(self: *Self, node: NodeId, node_size: Size(Number), parent_size: Size(Number), perform_layout: bool) Allocator.Error!ComputeResult {
@@ -2078,7 +2079,6 @@ pub const Forest = struct {
                     }
                 };
                 // zig fmt: on
-
                 order += 1;
             }
         }
@@ -2114,6 +2114,19 @@ pub const Forest = struct {
         };
         for(children[node].items) | child, idx | {
             hidden_layout(nodes, children, child, @truncate(u32, idx));
+        }
+    }
+
+    fn round_layout(nodes: []NodeData, children: []ChildrenVec(NodeId), root: NodeId, abs_x: f32, abs_y: f32) void {
+        var layout = &nodes[root].layout;
+        const x_abs = abs_x + layout.location.x;
+        const y_abs = abs_y + layout.location.y;
+        layout.location.x = @round(layout.location.x);
+        layout.location.y = @round(layout.location.y);
+        layout.size.width = @round(x_abs + layout.size.width) - @round(x_abs);
+        layout.size.height = @round(y_abs + layout.size.height) - @round(y_abs);
+        for(children[root].items) | child | {
+            round_layout(nodes, children, child, x_abs, y_abs);
         }
     }
 
