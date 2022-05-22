@@ -2082,9 +2082,19 @@ pub const Forest = struct {
                 order += 1;
             }
         }
-
-        std.debug.print(" inner_container_size = {} \n", .{inner_container_size});
-        unreachable;
+        for(self.children.items[node].items) | child, index | {
+            if (self.nodes.items[child].style.display == Display.None) {
+                hidden_layout(self.nodes.items, self.children.items, child, @truncate(u32, index));
+            }
+        }
+        var result = ComputeResult { .size = container_size };
+        self.nodes.items[node].layout_cache = Cache {
+            .node_size = node_size,
+            .parent_size = parent_size,
+            .perform_layout = perform_layout,
+            .result = result.clone()
+        };
+        return result;
     }
 
     fn calc_baseline(forest: *Forest, node: NodeId, layout: *Layout) f32 {
@@ -2093,6 +2103,17 @@ pub const Forest = struct {
         } else {
             const child = forest.children.items[node].items[0];
             return calc_baseline(forest, child, &forest.nodes.items[child].layout);
+        }
+    }
+
+    fn hidden_layout(nodes: []NodeData, children:[]ChildrenVec(NodeId), node: NodeId, order: u32) void {
+        nodes[node].layout = Layout {
+            .order = order,
+            .size = ZeroSize(),
+            .location = ZeroPoint(),
+        };
+        for(children[node].items) | child, idx | {
+            hidden_layout(nodes, children, child, @truncate(u32, idx));
         }
     }
 
