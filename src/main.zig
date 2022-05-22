@@ -1045,7 +1045,7 @@ pub const Forest = struct {
     }
 
     pub fn compute(self: *Self, root: NodeId, size: Size(Number)) !void {
-        const style = self.nodes.items[root].style;
+        const style = &self.nodes.items[root].style;
         const has_root_min_max = style.min_size.width.is_defined() or style.min_size.height.is_defined() or style.max_size.width.is_defined() or style.max_size.height.is_defined();
         var result: ComputeResult = undefined;
         if (has_root_min_max) {
@@ -2520,6 +2520,10 @@ fn testMeasureFn_Width_100_Height_Double_Width(s: Size(Number)) Size(f32) {
     return Size(f32){ .width = w, .height = s.height.or_else_f32(w * 2.0) };
 }
 
+fn testMeasureFn_Height_50_Width_Equals_Height(s: Size(Number)) Size(f32) {
+    const h = s.height.or_else_f32(50.0);
+    return Size(f32){ .width = s.width.or_else_f32(h), .height = h };
+}
 
 test "measure_root" {
     std.debug.print("\n Measure Root\n", .{});
@@ -2693,6 +2697,32 @@ test "remeasure_child_after_shrinking" {
     try std.testing.expect(child1_layout.size.width == 50.0);
     try std.testing.expect(child1_layout.size.height == 100.0);
    
+}
+
+test "remeasure_child_after_stretching" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+
+    const dim_100_points = Dimension { .Points = 100.0 };
+    
+    var child_style = Style.default();
+    const child = try stretch.new_leaf(child_style, MeasureFunc { .Raw = testMeasureFn_Height_50_Width_Equals_Height });
+
+    var node_style = Style.default();
+    node_style.size.width = dim_100_points;
+    node_style.size.height = dim_100_points;
+    const node = try stretch.new_node(node_style, &[_]Node { child });
+
+    const parent_size = UndefinedSize();
+    const width_is_defined = parent_size.width.is_defined();
+    const height_is_defined = parent_size.height.is_defined();
+    
+    std.debug.print("width_is_defined = {}, height_is_defined = {}\n", .{width_is_defined, height_is_defined});
+    try stretch.compute_layout(node, parent_size);
+
+    const child_layout = try stretch.layout(child);
+    try std.testing.expect(child_layout.size.width == 100.0);
+    try std.testing.expect(child_layout.size.height == 100.0);
 }
 
 //#endregion
