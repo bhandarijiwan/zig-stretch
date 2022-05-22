@@ -2482,10 +2482,8 @@ pub const Stretch = struct {
     }
 
     pub fn compute_layout(self: *Self, node: Node, size: Size(Number)) !void {
-        std.log.info("id={any}\n", .{size});
         const id = try self.find_node(node);
         try self.forest.compute_layout(id, size);
-        std.debug.print("\nforest node = {}\n", .{self.forest.nodes.items[0].layout_cache.?.result});
     }
 
     pub fn deinit(self: *Self) void {
@@ -2530,4 +2528,66 @@ test "measure_child" {
     try std.testing.expect(child_layout.size.width == 100.0);
     try std.testing.expect(child_layout.size.height == 100.0);
 }
+
+test "measure_child_constraint" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+    const child = try stretch.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFn });
+    var node_style = Style.default();
+    node_style.size.width = Dimension { .Points = 50.0 };
+    const node = try stretch.new_node(node_style, &[_]Node {child});
+    try stretch.compute_layout(node, UndefinedSize());
+    const node_layout = try stretch.layout(node);
+    const child_layout = try stretch.layout(child);
+    try std.testing.expect(node_layout.size.width == 50.0);
+    try std.testing.expect(node_layout.size.height == 100.0);
+    try std.testing.expect(child_layout.size.width == 50.0);
+    try std.testing.expect(child_layout.size.height == 100.0);
+}
+
+test "measure_child_constraint_padding_parent" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+    const child = try stretch.new_leaf(Style.default(), MeasureFunc { .Raw = testMeasureFn });
+    var node_style = Style.default();
+    node_style.size.width = Dimension { .Points = 50.0 };
+    const padding = Dimension { .Points = 10.0 };
+    node_style.padding.start = padding;
+    node_style.padding.end = padding;
+    node_style.padding.top = padding;
+    node_style.padding.bottom = padding;
+    const node = try stretch.new_node(node_style, &[_]Node {child});
+    try stretch.compute_layout(node, UndefinedSize());
+    const node_layout = try stretch.layout(node);
+    const child_layout = try stretch.layout(child);
+    try std.testing.expect(node_layout.size.width == 50.0);
+    try std.testing.expect(node_layout.size.height == 120.0);
+    try std.testing.expect(child_layout.size.width == 30.0);
+    try std.testing.expect(child_layout.size.height == 100.0);
+}
+
+test "measure_child_with_flex_grow" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+    const dim_50_points = Dimension { .Points = 50.0 };
+    const dim_100_points = Dimension { .Points = 100.0 };
+    var child0_style = Style.default();
+    child0_style.size.width = dim_50_points;
+    child0_style.size.height = dim_50_points;
+    const child0 = try stretch.new_leaf(child0_style, MeasureFunc { .Raw = testMeasureFn });
+    var child1_style = Style.default();
+    child1_style.flex_grow = 1.0;
+    const child1 = try stretch.new_leaf(child1_style, MeasureFunc { .Raw = testMeasureFn });
+    var node_style = Style.default();
+    node_style.size.width = dim_100_points;
+    const node = try stretch.new_node(node_style, &[_]Node { child0, child1 });
+
+    try stretch.compute_layout(node, UndefinedSize());
+    const child1_layout = try stretch.layout(child1);
+    try std.testing.expect(child1_layout.size.width == 50.0);
+    try std.testing.expect(child1_layout.size.height == 50.0);
+
+}
+
+
 //#endregion
