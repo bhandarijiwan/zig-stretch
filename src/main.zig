@@ -1140,6 +1140,7 @@ pub const Forest = struct {
             .height = node_size.height.or_else(parent_size.height.sub_f32(margin.vertical())).sub_f32(padding_border.vertical()),
         };
         var flex_items = Vec(FlexItem).init(self.allocator);
+        defer flex_items.deinit();
         const inner_size_width_mapper = &RectMapper(Dimension, f32){ .parent_size = node_inner_size.width, .default_value = 0.0 };
         var has_baseline_child = false;
         for (self.children.items[node].items) |child| {
@@ -1302,6 +1303,7 @@ pub const Forest = struct {
             }
             break :blk lines;
         };
+        defer flex_lines.deinit();
         // 6. Resolve the flexible lengths of all the flex items to find their used main size.
         //    See §9.7 Resolving Flexible Lengths.
         //
@@ -1399,6 +1401,7 @@ pub const Forest = struct {
                     used_space += child_line_item.margin.main(dir) + if (child_line_item.frozen) child_line_item.target_size.main(dir) else child_line_item.flex_basis;
                 }
                 var unfrozen = Vec(*FlexItem).init(self.allocator);
+                defer unfrozen.deinit();
                 for (line.items) |*child_line_item| {
                     if (!child_line_item.frozen) {
                         try unfrozen.append(child_line_item);
