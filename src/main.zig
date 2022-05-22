@@ -2523,6 +2523,11 @@ test "measure_child" {
     const child = try stretch.new_leaf(Style.default(), MeasureFunc{ .Raw = testMeasureFn });
     const node = try stretch.new_node(Style.default(), &[_]Node{child});
     try stretch.compute_layout(node, UndefinedSize());
-    std.debug.print(" node = {} \n", .{node});
+    const node_layout = stretch.layout(node) catch unreachable;
+    try std.testing.expect(node_layout.size.width == 100.0);
+    try std.testing.expect(node_layout.size.height == 100.0);
+    const child_layout = stretch.layout(child) catch unreachable;
+    try std.testing.expect(child_layout.size.width == 100.0);
+    try std.testing.expect(child_layout.size.height == 100.0);
 }
 //#endregion
