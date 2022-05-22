@@ -2510,6 +2510,11 @@ fn testMeasureFn_Width_100_Height_50(s: Size(Number)) Size(f32) {
     return Size(f32){ .width = s.width.or_else_f32(100.0), .height = s.height.or_else_f32(50.0) };
 }
 
+fn testMeasureFn_Width_10_Height_Double_Width(s: Size(Number)) Size(f32) {
+    const w = s.width.or_else_f32(10.0);
+    return Size(f32){ .width = w, .height = s.height.or_else_f32(w * 2.0) };
+}
+
 test "measure_root" {
     std.debug.print("\n Measure Root\n", .{});
     var stretch = try Stretch.new(std.testing.allocator);
@@ -2620,10 +2625,38 @@ test "measure_child_with_flex_shrink" {
     try stretch.compute_layout(node, UndefinedSize());
 
     const child1_layout = try stretch.layout(child1);
-    const child0_layout = try stretch.layout(child0);
-    _ = child0_layout;
+
     try std.testing.expect(child1_layout.size.width == 50.0);
     try std.testing.expect(child1_layout.size.height == 50.0);
+}
+
+test "remeasure_child_after_growing" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+
+    const dim_50_points = Dimension { .Points = 50.0 };
+    const dim_100_points = Dimension { .Points = 100.0 };
+
+    var child0_style = Style.default();
+    child0_style.size.width = dim_50_points;
+    child0_style.size.height = dim_50_points;
+    const child0 = try stretch.new_node(child0_style, &[_]Node {});
+
+
+    var child1_style = Style.default();
+    child1_style.flex_grow = 1.0;
+    const child1 = try stretch.new_leaf(child1_style, MeasureFunc { .Raw = testMeasureFn_Width_10_Height_Double_Width });
+
+    var node_style = Style.default();
+    node_style.size.width = dim_100_points;
+    node_style.align_items = AlignItems.FlexStart;
+    const node = try stretch.new_node(node_style, &[_]Node { child0, child1 });
+
+    try stretch.compute_layout(node, UndefinedSize());
+
+    const child1_layout = try stretch.layout(child1);
+    try std.testing.expect(child1_layout.size.width == 50.0);
+    try std.testing.expect(child1_layout.size.height == 100.0);
 }
 
 //#endregion
