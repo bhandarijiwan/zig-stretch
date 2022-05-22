@@ -1971,6 +1971,24 @@ pub const Forest = struct {
             }
         }
 
+        // Before returning we perform absolute layout on all absolutely positioned children
+        {
+            var order: usize = 0;
+            for(self.children.items[node].items) | *child | {
+                const child_style = self.nodes.items[child.*].style;
+                if (child_style.position_type != PositionType.Absolute) {
+                    continue;
+                }
+                const container_width = Number.from(container_size.width);
+                const container_height = Number.from(container_size.height);
+                const start  = child_style.position.start.resolve(container_width).add(child_style.margin.start.resolve(container_width));
+                const end  = child_style.position.end.resolve(container_width).add(child_style.margin.end.resolve(container_width));
+                const top  = child_style.position.top.resolve(container_height).add(child_style.margin.top.resolve(container_height));
+                const bottom  = child_style.position.bottom.resolve(container_height).add(child_style.margin.bottom.resolve(container_height));
+                order += 1;
+            }
+        }
+
         std.debug.print(" inner_container_size = {} \n", .{inner_container_size});
         unreachable;
     }
