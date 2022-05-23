@@ -2738,4 +2738,22 @@ test "width_overrides_measure" {
     try std.testing.expect(child_layout.size.height == 100.0);
 }
 
+test "height_overrides_measure" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+
+    var child_style = Style.default();
+    child_style.size.height = Dimension { .Points = 50.0 };
+    const child = try stretch.new_leaf(child_style, MeasureFunc { .Raw = testMeasureFn_Width_100_Height_100 });
+
+    var node_style = Style.default();
+    const node = try stretch.new_node(node_style, &[_]Node { child });
+
+    try stretch.compute_layout(node, UndefinedSize());
+
+    const child_layout = try stretch.layout(child);
+    try std.testing.expect(child_layout.size.width == 100.0);
+    try std.testing.expect(child_layout.size.height == 50.0);
+}
+
 //#endregion
