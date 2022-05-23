@@ -2510,6 +2510,10 @@ fn testMeasureFn_Width_100_Height_50(s: Size(Number)) Size(f32) {
     return Size(f32){ .width = s.width.or_else_f32(100.0), .height = s.height.or_else_f32(50.0) };
 }
 
+fn testMeasureFn_Width_50_Height_50(s: Size(Number)) Size(f32) {
+    return Size(f32){ .width = s.width.or_else_f32(50.0), .height = s.height.or_else_f32(50.0) };
+}
+
 fn testMeasureFn_Width_10_Height_Double_Width(s: Size(Number)) Size(f32) {
     const w = s.width.or_else_f32(10.0);
     return Size(f32){ .width = w, .height = s.height.or_else_f32(w * 2.0) };
@@ -2784,6 +2788,25 @@ test "flex_basis_overrides_measure" {
     try std.testing.expect(child0_layout.size.height == 100.0);
     try std.testing.expect(child1_layout.size.width == 100.0);
     try std.testing.expect(child1_layout.size.height == 100.0);
+}
+
+test "stretch_overrides_measure" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+
+    var child_style = Style.default();
+    const child = try stretch.new_leaf(child_style, MeasureFunc { .Raw = testMeasureFn_Width_50_Height_50 });
+
+    var node_style = Style.default();
+    node_style.size.width = Dimension { .Points = 100.0 };
+    node_style.size.height = Dimension { .Points = 100.0 };
+    const node = try stretch.new_node(node_style, &[_]Node { child });
+
+    try stretch.compute_layout(node, UndefinedSize());
+
+    const child_layout = try stretch.layout(child);
+    try std.testing.expect(child_layout.size.width == 50.0);
+    try std.testing.expect(child_layout.size.height == 100.0);
 }
 
 //#endregion
