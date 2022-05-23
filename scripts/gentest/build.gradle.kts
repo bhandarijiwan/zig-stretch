@@ -14,6 +14,7 @@ repositories {
 }
 
 dependencies {
+    implementation("org.seleniumhq.selenium:selenium-java:4.1.4")
     testImplementation(kotlin("test"))
 }
 
