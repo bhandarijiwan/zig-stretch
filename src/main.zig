@@ -2756,4 +2756,34 @@ test "height_overrides_measure" {
     try std.testing.expect(child_layout.size.height == 50.0);
 }
 
+test "flex_basis_overrides_measure" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+
+    var child0_style = Style.default();
+    child0_style.flex_basis = Dimension { .Points = 50.0 };
+    child0_style.flex_grow = 1.0;
+    const child0 = try stretch.new_node(child0_style, &[_]Node {});
+
+    var child1_style = Style.default();
+    child1_style.flex_basis = Dimension { .Points = 50.0 };
+    child1_style.flex_grow = 1.0;
+    const child1 = try stretch.new_leaf(child1_style, MeasureFunc { .Raw = testMeasureFn_Width_100_Height_100 });
+
+    var node_style = Style.default();
+    node_style.size.width = Dimension { .Points = 200.0 };
+    node_style.size.height = Dimension { .Points = 100.0 };
+    const node = try stretch.new_node(node_style, &[_]Node { child0, child1 });
+
+    try stretch.compute_layout(node, UndefinedSize());
+
+    const child0_layout = try stretch.layout(child0);
+    const child1_layout = try stretch.layout(child1);
+
+    try std.testing.expect(child0_layout.size.width == 100.0);
+    try std.testing.expect(child0_layout.size.height == 100.0);
+    try std.testing.expect(child1_layout.size.width == 100.0);
+    try std.testing.expect(child1_layout.size.height == 100.0);
+}
+
 //#endregion
