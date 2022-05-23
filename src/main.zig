@@ -718,7 +718,7 @@ pub const Style = struct {
 
     pub fn align_self_fn(self: Self, parent: *Style) AlignSelf {
         if (self.align_self == AlignSelf.Auto) {
-            return switch (parent.*.align_items) {
+            return switch (parent.align_items) {
                 .FlexStart => AlignSelf.FlexStart,
                 .FlexEnd => AlignSelf.FlexEnd,
                 .Center => AlignSelf.Center,
@@ -1227,11 +1227,11 @@ pub const Forest = struct {
             //    is auto and not definite, in this calculation use fit-content as the
             //    flex item’s cross size. The flex base size is the item’s resulting main size.
 
-            const width: Number = if (child.size.width.is_defined() and
+            const width: Number = if (!child.size.width.is_defined() and
                 child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Stretch and
                 is_column) available_space.width else child.size.width;
 
-            const height: Number = if (child.size.height.is_defined() and
+            const height: Number = if (!child.size.height.is_defined() and
                 child_style.align_self_fn(&self.nodes.items[node].style) == AlignSelf.Stretch and
                 is_row) available_space.height else child.size.height;
 
