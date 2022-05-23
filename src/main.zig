@@ -2809,4 +2809,24 @@ test "stretch_overrides_measure" {
     try std.testing.expect(child_layout.size.height == 100.0);
 }
 
+test "measure_absolute_child" {
+    var stretch = try Stretch.new(std.testing.allocator);
+    defer stretch.deinit();
+
+    var child_style = Style.default();
+    child_style.position_type = PositionType.Absolute;
+    const child = try stretch.new_leaf(child_style, MeasureFunc { .Raw = testMeasureFn_Width_50_Height_50 });
+
+    var node_style = Style.default();
+    node_style.size.width = Dimension { .Points = 100.0 };
+    node_style.size.height = Dimension { .Points = 100.0 };
+    const node = try stretch.new_node(node_style, &[_]Node { child });
+
+    try stretch.compute_layout(node, UndefinedSize());
+
+    const child_layout = try stretch.layout(child);
+    try std.testing.expect(child_layout.size.width == 50.0);
+    try std.testing.expect(child_layout.size.height == 50.0);
+}
+
 //#endregion
