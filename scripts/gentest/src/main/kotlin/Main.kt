@@ -71,7 +71,7 @@ data class DefinedStyle (
 @Serializable
 data class Dimension (
 	val unit: String,
-	val value: Float?
+	val value: Float? = null
 )
 
 @Serializable
@@ -118,12 +118,16 @@ fun main(args: Array<String>) {
 	val outDirPathStr = outDirPath.toString()
 	for(entry in fixtureDesc.entries) {
 		val name = File(entry.key).nameWithoutExtension
-		val stretch = Json.decodeFromString<Node>(entry.value)
-		val testCode = generateTest(name, stretch)
-		val testFileName = "$name.zig"
-		FileWriter(Paths.get(outDirPathStr, testFileName).toFile(), false).use {
-			it.write(testCode)
-			testFileNames.add(testFileName)
+		try {
+			val stretch = Json.decodeFromString<Node>(entry.value)
+			val testCode = generateTest(name, stretch)
+			val testFileName = "$name.zig"
+			FileWriter(Paths.get(outDirPathStr, testFileName).toFile(), false).use {
+				it.write(testCode)
+				testFileNames.add(testFileName)
+			}
+		} catch(e: Exception) {
+			println("Failed to codgen for file: $entry.key due to ${e}")
 		}
 	}
 	generateTestMain(testFileNames).let { code ->
@@ -182,7 +186,7 @@ fun generateNodeDescription(ident: String, node: Node): String {
 
 	when(style.display) {
 		"none" -> {
-			nodeStyleSb.append("${ident}_style.display = S.Display.Node;\n")
+			nodeStyleSb.append("${ident}_style.display = S.Display.None;\n")
 		}
 	}
 
