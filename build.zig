@@ -10,7 +10,7 @@ pub fn build(b: *std.build.Builder) void {
     lib.install();
 
     const main_tests = b.addTest("src/main.zig");
-    main_tests.setBuildMode(mode);
+    main_tests.setBuildMode(.Debug);
 
     var gen_test: *std.build.LibExeObjStep = b.addTest("test/gentest/main.zig");
     if (b.args) | args |  {
@@ -18,7 +18,7 @@ pub fn build(b: *std.build.Builder) void {
             gen_test = b.addTest(args[0]);
         }
     } 
-    gen_test.setBuildMode(mode);
+    gen_test.setBuildMode(.Debug);
     gen_test.addPackage(.{ .name = "stretch" , .path = .{ .path = "src/main.zig" } });
 
     const test_step = b.step("test", "Run library tests");
