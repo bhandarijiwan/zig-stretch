@@ -30,4 +30,28 @@ test "flex_direction_row" {
     const node = try stretch.new_node(node_style, &[_]S.Node{ node_1, node_2, node_3 });
 
     try stretch.compute_layout(node, S.UndefinedSize());
+
+    const node_layout = try stretch.layout(node);
+    try std.testing.expect(node_layout.size.width == 100.0);
+    try std.testing.expect(node_layout.size.height == 100.0);
+    try std.testing.expect(node_layout.location.x == 0.0);
+    try std.testing.expect(node_layout.location.y == 0.0);
+
+    const node_1_layout = try stretch.layout(node_1);
+    try std.testing.expect(node_1_layout.size.width == 10.0);
+    try std.testing.expect(node_1_layout.size.height == 100.0);
+    try std.testing.expect(node_1_layout.location.x == 0.0);
+    try std.testing.expect(node_1_layout.location.y == 0.0);
+
+    const node_2_layout = try stretch.layout(node_2);
+    try std.testing.expect(node_2_layout.size.width == 10.0);
+    try std.testing.expect(node_2_layout.size.height == 100.0);
+    try std.testing.expect(node_2_layout.location.x == 10.0);
+    try std.testing.expect(node_2_layout.location.y == 0.0);
+
+    const node_3_layout = try stretch.layout(node_3);
+    try std.testing.expect(node_3_layout.size.width == 10.0);
+    try std.testing.expect(node_3_layout.size.height == 100.0);
+    try std.testing.expect(node_3_layout.location.x == 20.0);
+    try std.testing.expect(node_3_layout.location.y == 0.0);
 }

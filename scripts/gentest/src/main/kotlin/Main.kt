@@ -154,9 +154,9 @@ fun generateTestMain(filenames: List<String>): String? {
 	return sb.toString()
 }
 
-fun generateTest(name: String, desc: Node): String {
-	val nodeDescriptions = generateNodeDescription("node", desc)
-	//val assertions = generateAssertions()
+fun generateTest(name: String, node: Node): String {
+	val nodeDescriptions = generateNodeDescription("node", node)
+	val assertions = generateAssertions("node", node)
 	
 	return """
 	$prelude
@@ -171,6 +171,7 @@ fun generateTest(name: String, desc: Node): String {
 		$nodeDescriptions
 
 		try stretch.compute_layout(node, S.UndefinedSize());
+		$assertions
 	}
 	""".trimIndent();
 }
@@ -353,3 +354,19 @@ fun generateDimension(d: Dimension?): String? {
 	}
 }
 
+fun generateAssertions(ident: String, node: Node): String {
+	val children_assertions = mutableListOf<String>()
+	for((index, child) in node.children.withIndex()) {
+		val childIdent = "${ident}_${index+1}"
+		children_assertions.add(generateAssertions(childIdent, child))
+	}
+	return """
+
+	const ${ident}_layout = try stretch.layout(${ident});
+	try std.testing.expect(${ident}_layout.size.width == ${node.layout.width});
+	try std.testing.expect(${ident}_layout.size.height == ${node.layout.height});
+	try std.testing.expect(${ident}_layout.location.x == ${node.layout.x});
+	try std.testing.expect(${ident}_layout.location.y == ${node.layout.y});
+	${children_assertions.joinToString("\n")}
+	"""
+}
