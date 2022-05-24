@@ -482,7 +482,7 @@ pub const AlignContent = enum {
 pub const Direction = enum {
     Inherit,
     LTR,
-    RLT,
+    RTL,
 
     pub fn default() Direction {
         return .Inherit;
