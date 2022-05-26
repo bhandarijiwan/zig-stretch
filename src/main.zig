@@ -1825,7 +1825,7 @@ pub const Forest = struct {
                         child.margin.start = free_space / 2.0;
                         child.margin.end = free_space / 2.0;
                     }
-                } else if (child_style.cross_margin_end(dir) == Dimension.Auto) {
+                } else if (child_style.cross_margin_start(dir) == Dimension.Auto) {
                     if (is_row) {
                         child.margin.top = free_space;
                     } else {
