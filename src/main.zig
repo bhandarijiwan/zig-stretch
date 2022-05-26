@@ -749,7 +749,7 @@ test "default style" {
     try std.testing.expect(std.meta.eql(s.border, Rect(Dimension).default()));
     try std.testing.expect(s.flex_grow == 0.0);
     try std.testing.expect(s.flex_shrink == 1.0);
-    try std.testing.expect(std.meta.eql(s.flex_basis, Dimension.default()));
+    try std.testing.expect(std.meta.eql(s.flex_basis, Dimension.Auto));
     try std.testing.expect(std.meta.eql(s.size, Size(Dimension).default()));
     try std.testing.expect(std.meta.eql(s.min_size, Size(Dimension).default()));
     try std.testing.expect(std.meta.eql(s.max_size, Size(Dimension).default()));
