@@ -1159,7 +1159,7 @@ pub const Forest = struct {
                     },
                     .margin = child_style.margin.map(f32, inner_size_width_mapper),
                     .padding = child_style.padding.map(f32, inner_size_width_mapper),
-                    .border = child_style.padding.map(f32, inner_size_width_mapper),
+                    .border = child_style.border.map(f32, inner_size_width_mapper),
                     .flex_basis = 0.0,
                     .inner_flex_basis = 0.0,
                     .violation = 0.0,
